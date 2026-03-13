@@ -3,25 +3,7 @@ name: apiclaw-analysis
 version: 1.0.0
 description: >
   Amazon seller data analysis tool. Features: market research, product selection, competitor analysis, ASIN evaluation, pricing reference, category research.
-
-  Auto-trigger scenarios (loads this skill when user queries include):
-  - Platform terms: Amazon, cross-border, e-commerce product selection
-  - Analysis terms: help me analyze, check this out, research, investigate, evaluate
-  - Product selection: product selection, find products, what products sell well, any opportunities, can I do this, is it worth doing, blue ocean
-  - Competitor terms: competitors, competitors, what are competitors selling, who is selling
-  - Market terms: how is the market, category, niche, track, sub-market, market capacity, market size
-  - Product terms: ASIN, B0-prefix codes, this product, monthly sales, how much sales, how is it selling, review analysis
-  - Data terms: BSR, ranking, concentration, FBA rate, new SKU rate, brand count
-  - Pricing terms: pricing, how much to sell for, price range, profit
-  - Decision terms: should I do this, is it risky, is it difficult, high barrier
-
   Uses scripts/apiclaw.py to call APIClaw API, requires APICLAW_API_KEY.
-metadata:
-  openclaw:
-    requires:
-      env:
-        - APICLAW_API_KEY
-    primaryEnv: APICLAW_API_KEY
 ---
 
 # APIClaw — Amazon Seller Data Analysis
@@ -35,21 +17,20 @@ metadata:
 
 - Required: `APICLAW_API_KEY`
 - Scope: used only for `https://api.apiclaw.io`
-- Storage: `~/.apiclaw/config.json` (cross-platform)
+- Storage: `config.json` in the skill directory (same folder as SKILL.md)
 
 ### API Key Configuration Mechanism
 
-**Config file location (unified across all systems):**
-```
-~/.apiclaw/config.json
-```
+**Config file location:** `config.json` in the skill root directory, next to `SKILL.md`.
 
-| System | Actual Path |
-|--------|-------------|
-| macOS | `/Users/username/.apiclaw/config.json` |
-| Linux | `/home/username/.apiclaw/config.json` |
-| Windows | `C:\Users\username\.apiclaw\config.json` |
-
+```
+apiclaw-analysis-skill/
+├── config.json          ← API Key stored here
+├── SKILL.md
+├── scripts/
+│   └── apiclaw.py
+└── references/
+```
 **Config file format:**
 ```json
 {
@@ -61,18 +42,17 @@ metadata:
 
 When user first uses or provides new Key, AI should execute:
 
-```bash
-# Create directory and write config
-mkdir -p ~/.apiclaw && cat > ~/.apiclaw/config.json << 'EOF'
-{
-  "api_key": "hms_live_user_provided_key"
-}
-EOF
+```python
+import os, json
+# config.json is stored in the skill root directory (parent of scripts/)
+skill_dir = os.path.dirname(os.path.abspath(__file__))  # when running from scripts/
+skill_dir = os.path.dirname(skill_dir)  # go up to skill root
+config_path = os.path.join(skill_dir, "config.json")
+with open(config_path, "w") as f:
+    json.dump({"api_key": "hms_live_user_provided_key"}, f, indent=2)
+print(f"API Key saved to {config_path}")
 ```
 
-**Example dialogue:**
-> User: "My API Key is hms_live_xxxxxx"
-> AI: Got it, I'll save it to config file `~/.apiclaw/config.json`, no need to provide it again later.
 
 ### Get API Key
 
@@ -345,16 +325,7 @@ When `salesMonthly` is null: **Monthly sales ≈ 300,000 / BSR^0.65**
 
 ---
 
-## Capabilities and limitations
-
-### What this skill can do
-
-- Market sizing and category validation
-- Product discovery with 14 preset modes + custom filters
-- Competitor identification and comparison
-- Real-time ASIN analysis (listing, reviews, specs, variants)
-- Price band analysis and positioning guidance
-- Full market reports (composite workflow)
+## Limitations
 
 ### What this skill cannot do
 
@@ -377,57 +348,24 @@ When `salesMonthly` is null: **Monthly sales ≈ 300,000 / BSR^0.65**
 
 ---
 
-## Error handling
+## Error Handling & Self-Check
 
-The script handles errors internally:
+HTTP errors (401/402/403/404/429) are handled by the script automatically, returning structured JSON with `error.message` and `error.action` that AI can read and act on.
 
-| Error | Script behavior |
-|-------|----------------|
-| 401 Unauthorized | Exits with message to check API key |
-| 429 Rate limit | Auto-retries with backoff (up to 2 attempts) |
-| Timeout | Auto-retries once |
-| 404 Not found | Exits with link to API docs |
-| Empty data | Returns empty `data: []` — try different keywords or broader filters |
-
----
-
-## API Self-Check
-
-When encountering **401, 404, interface not found, parameter errors** etc., run self-check command:
+When encountering issues, run self-check:
 
 ```bash
 python scripts/apiclaw.py check
 ```
 
-Self-check will:
-- Check if `APICLAW_API_KEY` is configured
-- Test 4 database interfaces (categories, markets, products, competitors)
-- Report availability status of each interface
+Tests 4 of 5 endpoints (skips `realtime/product` which requires a valid ASIN), reports availability.
 
-Example output:
-```
-✅ APICLAW_API_KEY: hms_live...xxxx
-✅ categories                    OK (returned 34 items)
-✅ markets/search                OK (returned 1 items)
-✅ products/search               OK (returned 1 items)
-✅ products/competitor-lookup    OK (returned 1 items)
-✅ All endpoints operational
-```
-
----
-
-## Common Error Quick Reference
+**Other common issues**:
 
 | Error | Cause | Solution |
 |-----|------|------|
-| `command not found: python` | macOS has no python command | Use `python3` instead of `python` |
-| `Cannot index array with string` | jq parsing error, `.data` is array | Use `.data[0].fieldName` instead of `.data.fieldName` |
-| `401 Unauthorized` | API Key not configured/invalid/expired | User needs to get Key from [apiclaw.io/api-keys](https://apiclaw.io/api-keys), tell AI in conversation to help configure |
-| `402 Payment Required` | API quota exhausted | Ask user for new Key, replace old Key in `~/.apiclaw/config.json` with new Key |
-| `403 Forbidden` | New Key not fully activated / CDN cache delay | **Wait 3-5 seconds then retry, max 2 retries**. Newly configured Key may need several seconds to take effect in backend |
-| `404 Not Found` | Interface path error or changed | Run `python scripts/apiclaw.py check` to get latest spec |
-| `topN: 10` reports type error | Should be string | Script handles automatically, if calling manually change to `"10"` |
-| Returns empty data `data: []` | Category/keyword no match | Use `categories` command to first confirm category exists |
-| Interface timeout | pageSize too large or network issues | Reduce `--page-size` or retry |
-| `salesMonthly: null` | Some products have no sales data | Use BSR rough estimate: Monthly sales ≈ 300,000 / BSR^0.65 |
-| `realtime/product` slow | Real-time scraping takes time | Normal 5-30s, be patient |
+| `command not found: python` | macOS has no python command | Use `python3` |
+| `Cannot index array with string` | `.data` is array | Use `.data[0].fieldName` |
+| Returns empty `data: []` | Keyword no match | Use `categories` to confirm category exists first |
+| `salesMonthly: null` | Some products lack sales data | BSR estimate: Monthly sales ≈ 300,000 / BSR^0.65 |
+| `realtime/product` slow | Real-time scraping | Normal 5-30s, be patient |

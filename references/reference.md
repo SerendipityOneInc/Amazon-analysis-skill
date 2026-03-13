@@ -2,6 +2,8 @@
 
 > Load this file only when you need exact field names, filter parameters, or response structure details.
 > For most tasks, the SKILL.md quick reference is sufficient.
+>
+> **OpenAPI Spec (live)**: https://apiclaw.io/api/v1/openapi-spec
 
 ---
 

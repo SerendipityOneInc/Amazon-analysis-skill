@@ -28,11 +28,11 @@ import urllib.error
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-BASE_URL = "https://api.apiclaw.io/openapi/v2"
-API_DOCS = "https://api.apiclaw.io/api-docs"
-MAX_RETRIES = 2
-RETRY_DELAY = 2  # seconds; doubles on 429
-REQUEST_TIMEOUT = 60  # seconds; realtime/product can be slow (up to 30s)
+BASE_URL = "https://api.apiclaw.io/openapi/v2"  # APIClaw API base URL
+API_DOCS = "https://api.apiclaw.io/api-docs"   # API documentation URL
+MAX_RETRIES = 2       # Maximum number of retry attempts for failed requests
+RETRY_DELAY = 2       # Initial retry delay in seconds; doubles on 429 (rate limit)
+REQUEST_TIMEOUT = 60  # Request timeout in seconds; realtime/product can be slow (up to 30s)
 
 # 14 built-in product selection modes
 # Each maps to a set of products/search filter parameters
@@ -61,15 +61,17 @@ def get_api_key():
 
     Priority:
     1. Environment variable APICLAW_API_KEY
-    2. Config file ~/.apiclaw/config.json
+    2. Config file config.json in the skill directory (next to scripts/)
     """
     # Try environment variable first
     key = os.environ.get("APICLAW_API_KEY", "").strip()
     if key:
         return key
 
-    # Try config file
-    config_path = os.path.expanduser("~/.apiclaw/config.json")
+    # Try config file in skill directory (parent of scripts/)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    skill_dir = os.path.dirname(script_dir)  # go up from scripts/ to skill root
+    config_path = os.path.join(skill_dir, "config.json")
     if os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
@@ -86,8 +88,8 @@ def get_api_key():
     print("Please configure your API Key using one of these methods:", file=sys.stderr)
     print("", file=sys.stderr)
     print("  Method 1: Config file (recommended)", file=sys.stderr)
-    print("    mkdir -p ~/.apiclaw", file=sys.stderr)
-    print('    echo \'{"api_key": "hms_live_yourkey"}\' > ~/.apiclaw/config.json', file=sys.stderr)
+    print(f"    Create config.json in the skill directory: {skill_dir}", file=sys.stderr)
+    print('    Content: {"api_key": "hms_live_yourkey"}', file=sys.stderr)
     print("", file=sys.stderr)
     print("  Method 2: Environment variable", file=sys.stderr)
     print("    export APICLAW_API_KEY='hms_live_yourkey'", file=sys.stderr)
@@ -144,13 +146,13 @@ def api_call(endpoint: str, params: dict) -> dict:
         except urllib.error.HTTPError as e:
             status = e.code
             if status == 401:
-                print("ERROR: 401 Unauthorized — API Key invalid or expired.", file=sys.stderr)
-                print("Check your APICLAW_API_KEY or get a new one at https://apiclaw.io/api-keys", file=sys.stderr)
-                sys.exit(1)
+                return _error_result(401, "API Key invalid or expired",
+                    "Check your API Key or get a new one at https://apiclaw.io/api-keys",
+                    endpoint, actual_params)
             elif status == 402:
-                print("ERROR: 402 Payment Required — API quota exhausted or subscription expired.", file=sys.stderr)
-                print("Check your plan at https://apiclaw.io/api-keys", file=sys.stderr)
-                sys.exit(1)
+                return _error_result(402, "API quota exhausted or subscription expired",
+                    "Check your plan at https://apiclaw.io/api-keys or provide a new Key",
+                    endpoint, actual_params)
             elif status == 429:
                 if attempt < MAX_RETRIES:
                     print(f"Rate limited (429). Waiting {delay}s before retry {attempt}/{MAX_RETRIES}...", file=sys.stderr)
@@ -158,31 +160,53 @@ def api_call(endpoint: str, params: dict) -> dict:
                     delay *= 2
                     continue
                 else:
-                    print("ERROR: Rate limit exceeded after retries. Try again later.", file=sys.stderr)
-                    sys.exit(1)
+                    return _error_result(429, "Rate limit exceeded after retries",
+                        "Try again later or reduce request frequency",
+                        endpoint, actual_params)
             elif status == 404:
-                print(f"ERROR: 404 — Endpoint '{endpoint}' not found.", file=sys.stderr)
-                print(f"Check {API_DOCS} for current endpoints.", file=sys.stderr)
-                sys.exit(1)
+                return _error_result(404, f"Endpoint '{endpoint}' not found",
+                    f"Check {API_DOCS} for current endpoints",
+                    endpoint, actual_params)
             else:
                 if attempt < MAX_RETRIES:
                     print(f"HTTP {status}. Retrying {attempt}/{MAX_RETRIES}...", file=sys.stderr)
                     time.sleep(delay)
                     continue
                 else:
-                    print(f"ERROR: HTTP {status} after {MAX_RETRIES} attempts.", file=sys.stderr)
-                    sys.exit(1)
+                    return _error_result(status, f"HTTP {status} after {MAX_RETRIES} attempts",
+                        "Check network or try again later",
+                        endpoint, actual_params)
         except Exception as e:
             if attempt < MAX_RETRIES:
                 print(f"Request failed: {e}. Retrying {attempt}/{MAX_RETRIES}...", file=sys.stderr)
                 time.sleep(delay)
                 continue
             else:
-                print(f"ERROR: Request failed after {MAX_RETRIES} attempts: {e}", file=sys.stderr)
-                sys.exit(1)
+                return _error_result(0, f"Request failed: {e}",
+                    "Check network connection",
+                    endpoint, actual_params)
 
-    print("ERROR: Unexpected retry loop exit.", file=sys.stderr)
-    sys.exit(1)
+    return _error_result(0, "Unexpected retry loop exit", "This should not happen", endpoint, actual_params)
+
+
+def _error_result(status: int, message: str, action: str, endpoint: str, params: dict) -> dict:
+    """
+    Build a structured error result instead of sys.exit().
+    This lets AI read the error from JSON stdout and take appropriate action.
+    """
+    print(f"ERROR: {message}", file=sys.stderr)
+    return {
+        "success": False,
+        "error": {
+            "status": status,
+            "message": message,
+            "action": action,
+        },
+        "_query": {
+            "endpoint": endpoint,
+            "params": params,
+        },
+    }
 
 
 def output(data, fmt="json"):
