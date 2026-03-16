@@ -231,20 +231,20 @@ All interfaces return `.data` as an **array**. Use `.data[0]` to get the first r
 
 | User Intent | Mode | Key Filters |
 |-------------|------|-------------|
-| "underserved" / "has pain points" | `--mode underserved` | Sales≥300, rating≤3.7 |
-| "high demand low barrier" / "easy entry" | `--mode high-demand-low-barrier` | Sales≥300, reviews≤50 |
-| "beginner friendly" / "new seller" | `--mode beginner` | Sales≥300, $15-60, FBA |
+| "beginner friendly" / "new seller" | `--mode beginner` | Sales≥300, growth≥3%, $15-60, FBA, ≤1yr, excl. red ocean keywords |
 | "fast turnover" / "hot selling" | `--mode fast-movers` | Sales≥300, growth≥10% |
-| "emerging" / "rising" | `--mode emerging` | Sales≤600, growth≥10% |
-| "single variant" / "small but beautiful" | `--mode single-variant` | Growth≥20%, variants=1 |
-| "long tail" / "niche" | `--mode long-tail` | BSR 10K-50K, ≤$30 |
-| "new products" / "new release" | `--mode new-release` | Sales≤500, New Release tag |
+| "emerging" / "rising" | `--mode emerging` | Sales≤600, growth≥10%, ≤180d |
+| "single variant" / "small but beautiful" | `--mode single-variant` | Growth≥20%, variants=1, ≤180d |
+| "high demand low barrier" / "easy entry" | `--mode high-demand-low-barrier` | Sales≥300, reviews≤50, ≤180d |
+| "long tail" / "niche" | `--mode long-tail` | Sales≤300, BSR 10K-50K, ≤$30, sellers≤1 |
+| "underserved" / "has pain points" | `--mode underserved` | Sales≥300, rating≤3.7, ≤180d |
+| "new products" / "new release" | `--mode new-release` | Sales≤500, NR tag, FBA+FBM |
+| "FBM" / "self-fulfillment" / "low stock" | `--mode fbm-friendly` | Sales≥300, FBM, ≤180d |
 | "low price" / "cheap" | `--mode low-price` | ≤$10 |
-| "top sellers" / "best sellers" | `--mode top-bsr` | BSR≤1000 |
-| "FBM" / "self-fulfillment" | `--mode fbm-friendly` | Sales≥300, FBM |
-| "broad catalog" / "cast wide net" | `--mode broad-catalog` | BSR growth≥99%, reviews≤10 |
-| "selective catalog" | `--mode selective-catalog` | BSR growth≥99% |
-| "speculative" / "piggyback" | `--mode speculative` | Sales≥600, sellers≥3 |
+| "broad catalog" / "cast wide net" | `--mode broad-catalog` | BSR growth≥99%, reviews≤10, ≤90d |
+| "selective catalog" | `--mode selective-catalog` | BSR growth≥99%, ≤90d |
+| "speculative" / "piggyback" | `--mode speculative` | Sales≥600, sellers≥3, ≤180d |
+| "top sellers" / "best sellers" | `--mode top-bsr` | Sub-category BSR≤1000 |
 
 ---
 
