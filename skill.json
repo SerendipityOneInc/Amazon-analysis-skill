@@ -1,0 +1,16 @@
+{
+  "name": "Amazon-analysis-skill",
+  "version": "1.0.0",
+  "description": "Amazon seller data analysis tool using APIClaw API for market research, product selection, and competitor analysis",
+  "author": "SerendipityOneInc",
+  "license": "MIT",
+  "env_vars": [
+    {
+      "name": "APICLAW_API_KEY",
+      "description": "API key for APIClaw service (obtain from apiclaw.io/api-keys)",
+      "required": true,
+      "scope": "api.apiclaw.io"
+    }
+  ],
+  "requires_python": ">=3.8"
+}
