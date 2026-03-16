@@ -1,12 +1,18 @@
 ---
 name: apiclaw-analysis
-version: 1.1.0
+version: 1.1.1
 description: >
   Amazon product research, competitor analysis, and market analysis for sellers.
   Use when user asks about: product selection, finding products to sell, ASIN lookup,
   BSR analysis, competitor lookup, market opportunity, risk assessment, category research,
   pricing strategy, review analysis, or any Amazon seller data needs.
   Powered by APIClaw API (requires APICLAW_API_KEY).
+author: SerendipityOneInc
+homepage: https://github.com/SerendipityOneInc/Amazon-analysis-skill
+credentials:
+  - name: APICLAW_API_KEY
+    scope: api.apiclaw.io
+    required: true
 ---
 
 # APIClaw — Amazon Seller Data Analysis
@@ -20,7 +26,9 @@ description: >
 
 - Required: `APICLAW_API_KEY`
 - Scope: used only for `https://api.apiclaw.io`
-- Storage: `config.json` in the skill root directory (next to SKILL.md)
+- Resolution order:
+  1. **Environment variable** `APICLAW_API_KEY` (preferred, most secure)
+  2. **Config file** `config.json` in the skill root directory (fallback)
 
 ```json
 { "api_key": "hms_live_xxxxxx" }
