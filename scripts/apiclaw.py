@@ -318,6 +318,18 @@ def cmd_products(args):
         params["ratingMax"] = args.rating_max
     if args.growth_min is not None:
         params["salesGrowthRateMin"] = args.growth_min
+    if args.bsr_min is not None:
+        params["bsrMin"] = args.bsr_min
+    if args.bsr_max is not None:
+        params["bsrMax"] = args.bsr_max
+    if args.seller_count_min is not None:
+        params["sellerCountMin"] = args.seller_count_min
+    if args.seller_count_max is not None:
+        params["sellerCountMax"] = args.seller_count_max
+    if args.variant_count_max is not None:
+        params["variantCountMax"] = args.variant_count_max
+    if args.keyword_match_type:
+        params["keywordMatchType"] = args.keyword_match_type
     if args.listing_age:
         params["listingAge"] = args.listing_age
     if args.badges:
@@ -618,6 +630,13 @@ Examples:
     p_prod.add_argument("--rating-min", type=float, help="Min rating")
     p_prod.add_argument("--rating-max", type=float, help="Max rating")
     p_prod.add_argument("--growth-min", type=float, help="Min sales growth rate")
+    p_prod.add_argument("--bsr-min", type=int, help="Min BSR rank")
+    p_prod.add_argument("--bsr-max", type=int, help="Max BSR rank")
+    p_prod.add_argument("--seller-count-min", type=int, help="Min seller count")
+    p_prod.add_argument("--seller-count-max", type=int, help="Max seller count")
+    p_prod.add_argument("--variant-count-max", type=int, help="Max variant count")
+    p_prod.add_argument("--keyword-match-type", choices=["fuzzy", "phrase", "exact"],
+                        help="Keyword match type (default: fuzzy)")
     p_prod.add_argument("--listing-age", help="Max listing age in days (string)")
     p_prod.add_argument("--badges", nargs="+", help="Badge filters (e.g. 'New Release')")
     p_prod.add_argument("--fulfillment", nargs="+", help="Fulfillment filter (FBA, FBM)")
