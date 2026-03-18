@@ -141,6 +141,11 @@ def api_call(endpoint: str, params: dict) -> dict:
                         "endpoint": endpoint,
                         "params": actual_params,
                     }
+                    # Inject _credits metadata for usage tracking
+                    data["_credits"] = {
+                        "consumed": data.get("creditsConsumed"),
+                        "remaining": data.get("creditsRemaining"),
+                    }
                     return data
                 else:
                     err = data.get("error", {})

@@ -1,8 +1,8 @@
 ---
 name: apiclaw-analysis
-version: 1.1.3
+version: 1.2.0
 description: >
-  Find winning Amazon products with 14 battle-tested selection strategies
+  Finds winning Amazon products with 14 battle-tested selection strategies
   & 6-dimension risk assessment. Backed by 200M+ product database.
   Use when user asks about: product selection, finding products to sell, ASIN lookup,
   BSR analysis, competitor lookup, market opportunity, risk assessment, category research,
@@ -76,6 +76,33 @@ When user provides a Key, write it to `config.json`. New keys may need 3-5 secon
 - `_query` metadata injection (for query traceability)
 
 **Fallback:** If script fails and can't be quickly fixed, use curl directly. Note "using curl direct call" in output.
+
+---
+
+## Realtime Data Supplementation
+
+When `products` or `competitors` returns ASINs in Full-mode analysis, **automatically call `product --asin` for the top 3-5 most relevant ASINs** to get current real-time data.
+
+| Scenario | Supplement? | How many ASINs |
+|----------|-------------|----------------|
+| Single ASIN lookup (Quick mode) | Already using realtime | — |
+| Market overview (no specific ASINs) | ❌ No | — |
+| Product selection / competitor analysis | ✅ Yes | Top 3 by sales |
+| Risk assessment | ✅ Yes | Target ASIN + top 2 competitors |
+| Multi-product comparison | ✅ Yes | All compared ASINs (max 5) |
+| Listing analysis | Already using realtime | — |
+
+**Handling data conflicts** — `products`/`competitors` has ~T+1 delay; `realtime/product` is live:
+
+| Field | Use from | Reason |
+|-------|----------|--------|
+| Price | **realtime** (`buyboxWinner.price`) | Changes frequently |
+| BSR | **realtime** (`bestsellersRank`) | Updates hourly |
+| Rating / ratingCount | **realtime** | More current |
+| Monthly Sales | **products/competitors** | Realtime doesn't have this |
+| Profit Margin / FBA Fee | **products/competitors** | Realtime doesn't have this |
+
+When realtime data differs significantly, note it: e.g. "⚡ Price updated: database $29.99 → realtime $24.99 (likely promotion)"
 
 ---
 
@@ -238,7 +265,7 @@ All interfaces return `.data` as an **array**. Use `.data[0]` to get the first r
 
 | User Intent | Mode | Key Filters |
 |-------------|------|-------------|
-| "beginner friendly" / "new seller" | `--mode beginner` | Sales≥300, growth≥3%, $15-60, FBA, ≤1yr, excl. red ocean keywords |
+| "beginner friendly" / "new seller" | `--mode beginner` | Sales≥300, growth≥3%, $15-60, FBA, ≤1yr, auto-excludes 150+ red ocean keywords |
 | "fast turnover" / "hot selling" | `--mode fast-movers` | Sales≥300, growth≥10% |
 | "emerging" / "rising" | `--mode emerging` | Sales≤600, growth≥10%, ≤180d |
 | "single variant" / "small but beautiful" | `--mode single-variant` | Growth≥20%, variants=1, ≤180d |
@@ -332,6 +359,29 @@ When `atLeastMonthlySales` is null: **Monthly sales ≈ 300,000 / BSR^0.65**
 2. Filter conditions MUST list specific parameter values
 3. If multiple interfaces used, list each one
 4. If data has limitations, proactively explain
+
+### API Usage Summary (All Modes)
+
+Every response (Quick or Full mode) MUST end with an API usage summary:
+
+```markdown
+**API Usage**
+| Interface | Calls |
+|-----------|-------|
+| categories | 1 |
+| markets/search | 1 |
+| products/search | 2 |
+| realtime/product | 3 |
+| **Total** | **7** |
+| **Credits consumed** | **7** |
+| **Credits remaining** | **493** |
+```
+
+**Tracking rules:**
+1. Count each `apiclaw.py` execution as 1 call to the corresponding interface
+2. Sum `_credits.consumed` from every API response for total consumed
+3. Use `_credits.remaining` from the **last** API response as remaining balance
+4. If `_credits` fields are null, show "N/A"
 
 ---
 
