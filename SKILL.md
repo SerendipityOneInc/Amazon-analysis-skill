@@ -1,6 +1,6 @@
 ---
 name: apiclaw-analysis
-version: 1.2.0
+version: 1.1.4
 description: >
   Finds winning Amazon products with 14 battle-tested selection strategies
   & 6-dimension risk assessment. Backed by 200M+ product database.
@@ -180,6 +180,26 @@ python3 scripts/apiclaw.py product --asin B09V3KXJPB
 
 Returns: title, brand, rating, ratingBreakdown, features, topReviews, specifications, variants, bestsellersRank, buyboxWinner
 
+### analyze — Review analysis (sentiment + consumer insights)
+
+```bash
+# Single ASIN
+python3 scripts/apiclaw.py analyze --asin B09V3KXJPB
+
+# Multiple ASINs (competitive review comparison)
+python3 scripts/apiclaw.py analyze --asins B09V3KXJPB,B08YYYYY,B07ZZZZZ
+
+# Category-level insights
+python3 scripts/apiclaw.py analyze --category "Pet Supplies,Dogs,Toys" --period 90d
+
+# Specific insight dimension
+python3 scripts/apiclaw.py analyze --asin B09V3KXJPB --label-type painPoints,buyingFactors
+```
+
+Returns: `totalReviews`, `avgRating`, `sentimentDistribution`, `ratingDistribution`, `consumerInsights` (by labelType), `topKeywords`, `verifiedRatio`
+
+Available labelType: `scenarios`, `issues`, `positives`, `improvements`, `buyingFactors`, `painPoints`, `keywords`, `userProfiles`, `usageTimes`, `usageLocations`, `behaviors`
+
 ### report — Full market analysis (composite)
 
 ```bash
@@ -204,29 +224,34 @@ Runs: categories → market → products (filtered) → realtime detail (top 3).
 
 ## ⚠️ Interface Data Differences
 
-The 3 types of interfaces return **different fields**. Do NOT assume they share the same structure.
+The 4 types of interfaces return **different fields**. Do NOT assume they share the same structure.
 
-| Data | `market` | `products` / `competitors` | `realtime/product` |
-|------|----------|---------------------------|-------------------|
-| Monthly Sales | `sampleAvgMonthlySales` | ✅ `atLeastMonthlySales` | ❌ **Not available** |
-| Revenue | `sampleAvgMonthlyRevenue` | `salesRevenue` | ❌ **Not available** |
-| Price | `sampleAvgPrice` | `price` | `buyboxWinner.price` |
-| BSR | `sampleAvgBsr` | `bsrRank` (integer) | `bestsellersRank` (array of {category, rank}) |
-| Rating | `sampleAvgRating` | `rating` | `rating` |
-| Review Count | `sampleAvgReviewCount` | `ratingCount` | `ratingCount` |
-| Review Details | ❌ | ❌ | ✅ `topReviews` + `ratingBreakdown` |
-| Seller | ❌ | `buyboxSeller` (string) | `buyboxWinner` (object with price, fulfillment, seller) |
-| Profit Margin | ❌ | `profitMargin` | ❌ **Not available** |
-| FBA Fee | ❌ | `fbaFee` | ❌ **Not available** |
-| Seller Count | ❌ | `sellerCount` | ❌ **Not available** |
-| Features/Bullets | ❌ | ❌ | ✅ `features` |
-| Variants | ❌ | `variantCount` (integer) | `variants` (full list) |
+| Data | `market` | `products`/`competitors` | `realtime/product` | `reviews/analyze` |
+|------|----------|--------------------------|--------------------|--------------------|
+| Monthly Sales | `sampleAvgMonthlySales` | ✅ `atLeastMonthlySales` | ❌ | ❌ |
+| Revenue | `sampleAvgMonthlyRevenue` | `salesRevenue` | ❌ | ❌ |
+| Price | `sampleAvgPrice` | `price` | `buyboxWinner.price` | ❌ |
+| BSR | `sampleAvgBsr` | `bsrRank` (integer) | `bestsellersRank` (array) | ❌ |
+| Rating | `sampleAvgRating` | `rating` | `rating` | `avgRating` |
+| Review Count | `sampleAvgReviewCount` | `ratingCount` | `ratingCount` | `totalReviews` |
+| Review Details | ❌ | ❌ | ✅ `topReviews` + `ratingBreakdown` | ❌ (no raw reviews) |
+| Sentiment Analysis | ❌ | ❌ | ❌ | ✅ `sentimentDistribution` |
+| Consumer Insights | ❌ | ❌ | ❌ | ✅ `consumerInsights` (11 dimensions) |
+| Pain Points/Issues | ❌ | ❌ | ❌ (manual from topReviews) | ✅ AI-analyzed |
+| Top Keywords | ❌ | ❌ | ❌ | ✅ `topKeywords` |
+| Seller | ❌ | `buyboxSeller` (string) | `buyboxWinner` (object) | ❌ |
+| Profit Margin | ❌ | `profitMargin` | ❌ | ❌ |
+| FBA Fee | ❌ | `fbaFee` | ❌ | ❌ |
+| Seller Count | ❌ | `sellerCount` | ❌ | ❌ |
+| Features/Bullets | ❌ | ❌ | ✅ `features` | ❌ |
+| Variants | ❌ | `variantCount` (integer) | `variants` (full list) | ❌ |
 
 **Usage rule:**
 - Use `products` / `competitors` for **sales, pricing, and competition data**
 - Use `realtime/product` for **review details, listing content, and seller info**
 - Use `market` for **category-level aggregate metrics**
-- For reports: combine `products`/`competitors` (quantitative) + `realtime/product` (qualitative) as evidence
+- Use `reviews/analyze` for **AI-powered review insights** (sentiment, pain points, buying factors — covers all reviews, not just topReviews)
+- For reports: combine `products`/`competitors` (quantitative) + `realtime/product` (qualitative) + `reviews/analyze` (consumer insights) as evidence
 
 ## Data Structure Reminder
 
@@ -241,7 +266,8 @@ All interfaces return `.data` as an **array**. Use `.data[0]` to get the first r
 | "which category has opportunity" | `market` + `categories` | No |
 | "check B09XXX" / "analyze ASIN" | `product --asin XXX` | No |
 | "Chinese seller cases" | `competitors --keyword XXX --page-size 50` | `scenarios-composite.md` → 3.4 |
-| "pain points" / "negative reviews" | `product --asin XXX` | `scenarios-eval.md` → 4.2 |
+| "pain points" / "negative reviews" / "consumer insights" | `analyze --asin XXX` + `product --asin XXX` | `scenarios-eval.md` → 4.2 |
+| "category pain points" / "category user portrait" | `analyze --category XXX` | `scenarios-eval.md` → 4.6 |
 | "compare products" | `competitors` or multiple `product` | `scenarios-eval.md` → 4.3 |
 | "risk assessment" / "can I do this" | `product` + `market` + `competitors` | `scenarios-eval.md` → 4.4 |
 | "monthly sales" / "estimate sales" | `competitors --asin XXX` | `scenarios-eval.md` → 4.5 |
@@ -393,7 +419,7 @@ Every response (Quick or Full mode) MUST end with an API usage summary:
 - Traffic source analysis
 - Historical sales trends (14-month curves)
 - Historical price / BSR charts
-- AI review sentiment analysis (use topReviews + ratingBreakdown manually)
+- Raw individual review text export (use `realtime/product` topReviews for specific review quotes)
 
 ### API Coverage Boundaries
 
