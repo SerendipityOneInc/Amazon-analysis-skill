@@ -34,10 +34,6 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 
 When user provides a Key, write it to `config.json`. New keys may need 3-5 seconds to activate — if first call returns 403, wait 3 seconds and retry (max 2 retries).
 
-**⚠️ Data persistence notice:** When you provide an API Key, the skill saves it to `config.json` in the skill directory for persistent access across sessions. This file is local-only and listed in `.gitignore` to prevent accidental commits. If you prefer not to store the key on disk, use the environment variable method (`export APICLAW_API_KEY=...`) instead — no file will be created.
-
-**New users:** Get API Key at [apiclaw.io/api-keys](https://apiclaw.io/api-keys).
-
 ## File Map
 
 | File | When to Load |
@@ -208,8 +204,6 @@ python3 scripts/apiclaw.py report --keyword "pet supplies"
 
 Runs: categories → market → products (top 50) → realtime detail (top 1).
 
-**Note:** The realtime detail section has a different field structure than products (no sales/revenue/profitMargin). It provides review details, seller info, and listing content as qualitative supplement.
-
 ### opportunity — Product opportunity discovery (composite)
 
 ```bash
@@ -217,8 +211,6 @@ python3 scripts/apiclaw.py opportunity --keyword "pet supplies" --mode fast-move
 ```
 
 Runs: categories → market → products (filtered) → realtime detail (top 3).
-
-**Note:** Same as `report` — realtime detail provides qualitative data only (reviews, features, seller). Sales/revenue come from the products step.
 
 ---
 
@@ -359,27 +351,6 @@ When `atLeastMonthlySales` is null: **Monthly sales ≈ 300,000 / BSR^0.65**
 - Concentration metrics based on Top N sample; different topN → different results
 ```
 
-**✅ Completed Example (yoga mat market analysis):**
-
-```markdown
----
-**Data Source & Conditions**
-| Item | Value |
-|----|-----|
-| Data Source | APIClaw API |
-| Interface | categories, markets/search, products/search |
-| Category | Sports & Outdoors > Exercise & Fitness > Yoga > Yoga Mats |
-| Time Range | 30d |
-| Sampling | by_sale_100 |
-| Top N | 10 |
-| Sort | atLeastMonthlySales desc |
-| Filters | monthlySalesMin: 300, reviewCountMax: 50 |
-
-**Data Notes**
-- Monthly sales are **lower bound estimates** (Amazon displays "10,000+ bought"), actual may be higher
-- Database data has ~T+1 delay; realtime/product is current real-time data
-```
-
 **Rules**:
 1. Every Full-mode analysis MUST end with this block
 2. Filter conditions MUST list specific parameter values
@@ -436,13 +407,11 @@ Every response (Quick or Full mode) MUST end with an API usage summary:
 
 ## Error Handling
 
-HTTP errors (401/402/403/404/429) are handled by the script, returning structured JSON with `error.message` and `error.action`.
+HTTP errors (401/402/403/404/429) are handled by the script with structured JSON output.
+Self-check: `python3 scripts/apiclaw.py check`
 
-Self-check: `python3 scripts/apiclaw.py check` — tests 4/5 endpoints, reports availability.
-
-| Error | Cause | Fix |
-|-------|-------|-----|
-| `Cannot index array with string` | `.data` is array | Use `.data[0].fieldName` |
-| Empty `data: []` | Keyword no match | Use `categories` to confirm category exists |
-| `atLeastMonthlySales: null` | Missing sales data | BSR estimate: 300,000 / BSR^0.65 |
-| `realtime/product` slow | Real-time scraping | Normal 5-30s, be patient |
+| Error | Fix |
+|-------|-----|
+| `Cannot index array with string` | Use `.data[0].fieldName` (`.data` is array) |
+| Empty `data: []` | Use `categories` to confirm category exists |
+| `atLeastMonthlySales: null` | BSR estimate: 300,000 / BSR^0.65 |
