@@ -1,10 +1,20 @@
 # macOS
 .DS_Store
+Thumbs.db
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
 
 # IDE
 .vscode/
@@ -13,3 +23,6 @@ __pycache__/
 # Environment
 .env
 config.json
+
+# Logs
+*.log

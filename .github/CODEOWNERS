@@ -1,0 +1,9 @@
+# Default owner for all files
+* @apiclaw
+
+# Skill files
+/amazon-analysis/ @apiclaw
+/apiclaw/ @apiclaw
+
+# CLI script
+/amazon-analysis/scripts/ @apiclaw
