@@ -32,7 +32,7 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
   ```bash
   export APICLAW_API_KEY='hms_live_xxxxxx'
   ```
-- Get a free key at [apiclaw.io/api-keys](https://apiclaw.io/api-keys) (1,000 free credits on signup, no credit card required)
+- Get a free key at [apiclaw.io/api-keys](https://apiclaw.io/en/api-keys) (1,000 free credits on signup, no credit card required)
 - Fallback: The script also checks `config.json` in the skill root directory if the env var is not set.
 - **Do NOT write keys to disk files.** Always recommend the environment variable approach.
 - New keys may need 3-5 seconds to activate — if first call returns 403, wait 3 seconds and retry (max 2 retries).
