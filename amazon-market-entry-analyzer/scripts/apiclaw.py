@@ -41,16 +41,18 @@ PRODUCT_MODES = {
     "emerging":                 {"monthlySalesMax": 600, "salesGrowthRateMin": 0.1, "listingAge": "180"},
     "single-variant":           {"salesGrowthRateMin": 0.2, "variantCountMax": 1, "listingAge": "180"},
     "high-demand-low-barrier":  {"monthlySalesMin": 300, "ratingCountMax": 50, "listingAge": "180"},
-    "long-tail":                {"bsrMin": 10000, "bsrMax": 50000, "priceMax": 30, "sellerCountMax": 1},
+    "long-tail":                {"bsrMin": 10000, "bsrMax": 50000, "priceMax": 30, "sellerCountMax": 1, "monthlySalesMax": 300},
     "underserved":              {"monthlySalesMin": 300, "ratingMax": 3.7, "listingAge": "180"},
-    "new-release":              {"monthlySalesMax": 500, "badges": ["New Release"]},
-    "fbm-friendly":             {"monthlySalesMin": 300, "fulfillment": ["FBM"]},
+    "new-release":              {"monthlySalesMax": 500, "badges": ["New Release"], "fulfillment": ["FBA", "FBM"]},
+    "fbm-friendly":             {"monthlySalesMin": 300, "fulfillment": ["FBM"], "listingAge": "180"},
     "low-price":                {"priceMax": 10},
     "broad-catalog":            {"bsrGrowthRateMin": 0.99, "ratingCountMax": 10, "listingAge": "90"},
     "selective-catalog":        {"bsrGrowthRateMin": 0.99, "listingAge": "90"},
-    "speculative":              {"monthlySalesMin": 600, "sellerCountMin": 3},
-    "beginner":                 {"monthlySalesMin": 300, "priceMin": 15, "priceMax": 60, "fulfillment": ["FBA"]},
-    "top-bsr":                  {"bsrMax": 1000},
+    "speculative":              {"monthlySalesMin": 600, "sellerCountMin": 3, "listingAge": "180"},
+    "beginner":                 {"monthlySalesMin": 300, "priceMin": 15, "priceMax": 60, "fulfillment": ["FBA"],
+                                 "salesGrowthRateMin": 0.03, "listingAge": "365",
+                                 "excludeKeywords": "Brow,Air Fryer,Body Fragrance Mist,Ornament,Ivory,Bed Comforter,Biker Shorts,Mens Dress Shoe,Charms,Dumbbell,Gaming Chair,Skipping Rope,Hoops,Plus Hoola,Kids Bike Helmet,Socks,Cushion,Camping Hammock,Double Leggings,Yoga,Hand Warmers,Trail Camera,Water Bottle,Insulated Food,Pillow,Pillows,iPhone,Dog Bark Collar,Leg Covers,Leg Cover,Laptop Stand,Pet Briefs,Brief,Hangers,Hanger,Slip Rug Pad,rossbody,Fanny Pack,Bedding,Dog Harness,Sweet Water Decor,Eyeshadow,Cotton Sleepsack,Swaddle,Chocolate Bra,Wireless Bed Sheet Set,Car Windshield Curtain,Curtains,Wallet,Green Tea,Picture Frame,Womens,Women Fan,Bottle,Essential Oil,Tumbler,YETI,Vitamin,Vitamins,Face Mask,Led Strip,Pocket,Women's Watch,Waffle Case,Gloves,Shorts,Short Yoga,StrawExpert,Wrap Around Pillowcases,Cup,Bath Mats,Bedsure,Pillowcase,Bathroom,Shower,Milk Frother,Masks,Bug Zapper,Touchless Thermometer,Cat Litter Mat,Probiotics,Smart Plug,Natural Vitality Bottle,Christmas,Sleeveless,Shape Shifting Box,Refrigerator Organizer,Hydration Multiplier,Standard Mouth,Gift Box,USB C,Superhero,Digital Caliper,Massage Gun,Fidget Toys,Garden Hose,Cookie,Blanket,Protein Bars,Caramel Cashew,String Lights,Umbrella,Wearable Blanket,Diapers,Halloween,Flying Toys,Laundry Basket,Kitchen Faucet,Citrulline Malate,Onesie,Pajamas,Nail Polish Kit,fairy finder,Allergy,Immune Supplement,Frying Pan,Tablecloth,Electric Knife,Butter Dish,Dancing Cactus,Maya Mint,ice Cream,Christmas Tree,Liquid Motion Lamp,Stuffed Animal,Plush Bed Comforter,Journal,Women's,Sleeveless Wrap,Supplement,Screen Magnifier,Foot Massager,Machine,Santa,Anime Heroes,Air Mattress,Three Barrel Curling,3D Printer Filament,Power Strip,Rechargeable Toothbrush,Hooded Bathrobe,Sleepwear,Baby Einstein,Vinyl,Plastic Plates,Doorbell,Month Planner,Wooden Balls,Arceus,Wipes,Perfume,Rings,Bore Sight,Fishing Lures,Ear Protection,Firewood Rack,Sling Bag,Resistance Bands,Belt,Backpacks,Silver Slides,Whiteboard,Sports Bra,Cover,Jade Stud,Earrings,Necklace,Snow Shovel,Computer Desk,Dog Pee Pads,Turtleneck,Glasses,Spa,Up Balancer"},
+    "top-bsr":                  {"subBsrMax": 1000},
 }
 
 # ─── API Client ──────────────────────────────────────────────────────────────
@@ -143,6 +145,8 @@ def api_call(endpoint: str, params: dict) -> dict:
                     err = data.get("error", {})
                     err_msg = err.get('message', json.dumps(err))
                     print(f"API error: {err.get('code', 'unknown')} — {err_msg}", file=sys.stderr)
+                    # Return error as structured result instead of exiting
+                    # This allows composite commands to continue with other steps
                     data["_query"] = {"endpoint": endpoint, "params": actual_params}
                     return data
         except urllib.error.HTTPError as e:
@@ -224,12 +228,20 @@ def output(data, fmt="json"):
 # ─── Helper: parse category string ──────────────────────────────────────────
 
 def parse_category(cat_str: str) -> list:
-    """Parse 'Pet Supplies,Dogs,Toys' or 'Pet Supplies > Dogs > Toys' into a list."""
+    """Parse category path string into a list.
+    
+    Supported formats:
+      - 'Pet Supplies,Dogs,Toys'           (comma-separated)
+      - 'Pet Supplies > Dogs > Toys'       (spaced arrow)
+      - 'Pet Supplies>Dogs>Toys'           (bare arrow, no spaces)
+    """
     if not cat_str:
         return []
-    # Support both comma and ' > ' separators
+    # Support comma, ' > ' (spaced), and '>' (bare) separators
     if " > " in cat_str:
         return [c.strip() for c in cat_str.split(" > ")]
+    if ">" in cat_str:
+        return [c.strip() for c in cat_str.split(">")]
     return [c.strip() for c in cat_str.split(",")]
 
 
@@ -331,11 +343,32 @@ def cmd_products(args):
     if args.exclude_brands:
         params["excludeBrands"] = args.exclude_brands
 
-    params["sortBy"] = args.sort or "monthlySales"
+    params["sortBy"] = args.sort or "atLeastMonthlySales"
     params["sortOrder"] = args.order or "desc"
     params["pageSize"] = args.page_size or 20
 
     result = api_call("products/search", params)
+
+    # Client-side filter: reviewCountMin/Max not enforced by API (known bug)
+    # Apply filtering locally to ensure mode presets work correctly
+    if result and result.get("success") and isinstance(result.get("data"), list):
+        rc_min = params.get("ratingCountMin") or params.get("reviewCountMin")
+        rc_max = params.get("ratingCountMax") or params.get("reviewCountMax")
+        if rc_min is not None or rc_max is not None:
+            original_count = len(result["data"])
+            filtered = result["data"]
+            if rc_max is not None:
+                filtered = [p for p in filtered if (p.get("ratingCount") or 0) <= rc_max]
+            if rc_min is not None:
+                filtered = [p for p in filtered if (p.get("ratingCount") or 0) >= rc_min]
+            result["data"] = filtered
+            if len(filtered) < original_count:
+                result["_clientFilter"] = {
+                    "reason": "reviewCount filter applied client-side (API bug workaround)",
+                    "before": original_count,
+                    "after": len(filtered)
+                }
+
     output(result, args.format)
 
 
@@ -351,7 +384,10 @@ def cmd_competitors(args):
     if args.category:
         params["categoryPath"] = parse_category(args.category)
 
-    params["sortBy"] = args.sort or "monthlySales"
+    params["dateRange"] = args.date_range or "30d"
+    params["marketplace"] = args.marketplace or "US"
+    params["page"] = args.page or 1
+    params["sortBy"] = args.sort or "atLeastMonthlySales"
     params["sortOrder"] = args.order or "desc"
     params["pageSize"] = args.page_size or 20
 
@@ -489,6 +525,267 @@ def cmd_opportunity(args):
     output(results, args.format)
 
 
+def cmd_market_entry(args):
+    """
+    Composite workflow: Full Market Entry Analysis.
+    Runs ALL 11 endpoints in the correct order with fallback logic.
+    Outputs a single structured JSON with all data needed for the report.
+    
+    Steps:
+      1. Market landscape: market + brand-overview + brand-detail
+      2. Price structure: price-band-overview + price-band-detail
+      3. Product supply: products/search (5 pages, 100 records)
+      4. Competitors: competitor-lookup + realtime/product (Top 5)
+      5. Trends: product-history (Top 3, with ASIN retry)
+      6. Consumer insights: reviews/analyze (3x category mode, fallback to ASIN)
+    """
+    keyword = args.keyword
+    category = args.category
+    if not keyword and not category:
+        print("ERROR: --keyword or --category is required.", file=sys.stderr)
+        sys.exit(1)
+
+    results = {"meta": {"keyword": keyword, "category": category, "steps_completed": []}}
+    category_path = parse_category(category) if category else None
+
+    def log(msg):
+        print(msg, file=sys.stderr)
+
+    def safe_call(endpoint, params, label=""):
+        """Call API and return result. Never exit on error."""
+        r = api_call(endpoint, params)
+        if r.get("success") is False:
+            log(f"  ⚠️ {label or endpoint}: {r.get('error', {}).get('message', 'failed')}")
+        return r
+
+    # ── Step 0.5: Category Resolution ──
+    if not category_path and keyword:
+        log("Step 0.5: Resolving category...")
+        cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
+        results["categories"] = cat_result
+        cat_data = cat_result.get("data", [])
+        if cat_data:
+            category_path = cat_data[0].get("categoryPath")
+            log(f"  → Locked category: {' > '.join(category_path)}")
+        else:
+            log("  ⚠️ No category match, will use keyword-only queries")
+
+    results["meta"]["resolved_category"] = category_path
+
+    # ── Step 1: Market Landscape (3 calls) ──
+    log("Step 1/6: Market landscape...")
+    
+    # 1a. Market aggregate
+    market_params = {"topN": "10", "pageSize": 20}
+    if category_path:
+        market_params["categoryPath"] = category_path
+    elif keyword:
+        market_params["categoryKeyword"] = keyword
+    results["market"] = safe_call("markets/search", market_params, "market")
+
+    # 1b. Brand overview (keyword + category, fallback to category-only)
+    brand_ov_params = {"pageSize": 20}
+    if category_path:
+        brand_ov_params["categoryPath"] = category_path
+    if keyword:
+        brand_ov_params["keyword"] = keyword
+    r = safe_call("products/brand-overview", brand_ov_params, "brand-overview")
+    if not r.get("data") or r.get("data", {}).get("sampleBrandCount", 0) == 0:
+        if keyword and category_path:
+            log("  → brand-overview empty with keyword+category, retrying category-only...")
+            brand_ov_params.pop("keyword", None)
+            r = safe_call("products/brand-overview", brand_ov_params, "brand-overview (category-only)")
+    results["brand_overview"] = r
+
+    # 1c. Brand detail
+    brand_dt_params = {"pageSize": 20}
+    if category_path:
+        brand_dt_params["categoryPath"] = category_path
+    if keyword:
+        brand_dt_params["keyword"] = keyword
+    r = safe_call("products/brand-detail", brand_dt_params, "brand-detail")
+    if not r.get("data") or not r.get("data", {}).get("brands"):
+        if keyword and category_path:
+            log("  → brand-detail empty with keyword+category, retrying category-only...")
+            brand_dt_params.pop("keyword", None)
+            r = safe_call("products/brand-detail", brand_dt_params, "brand-detail (category-only)")
+    results["brand_detail"] = r
+    results["meta"]["steps_completed"].append("market_landscape")
+
+    # ── Step 2: Price Structure (2 calls) ──
+    log("Step 2/6: Price structure...")
+    pb_params = {"pageSize": 20}
+    if category_path:
+        pb_params["categoryPath"] = category_path
+    if keyword:
+        pb_params["keyword"] = keyword
+
+    r = safe_call("products/price-band-overview", dict(pb_params), "price-band-overview")
+    if not r.get("data"):
+        if keyword and category_path:
+            pb_params_co = {k: v for k, v in pb_params.items() if k != "keyword"}
+            r = safe_call("products/price-band-overview", pb_params_co, "price-band-overview (category-only)")
+    results["price_band_overview"] = r
+
+    r = safe_call("products/price-band-detail", dict(pb_params), "price-band-detail")
+    if not r.get("data"):
+        if keyword and category_path:
+            pb_params_co = {k: v for k, v in pb_params.items() if k != "keyword"}
+            r = safe_call("products/price-band-detail", pb_params_co, "price-band-detail (category-only)")
+    results["price_band_detail"] = r
+    results["meta"]["steps_completed"].append("price_structure")
+
+    # ── Step 3: Product Supply (5 pages = 100 records) ──
+    log("Step 3/6: Product supply (5 pages)...")
+    all_products = []
+    total_products = 0
+    for page in range(1, 6):
+        prod_params = {"pageSize": 20, "page": page, "sortBy": "atLeastMonthlySales", "sortOrder": "desc"}
+        if keyword:
+            prod_params["keyword"] = keyword
+        if category_path:
+            prod_params["categoryPath"] = category_path
+        r = safe_call("products/search", prod_params, f"products page {page}")
+        page_data = r.get("data", [])
+        if isinstance(page_data, list):
+            all_products.extend(page_data)
+        if page == 1:
+            total_products = r.get("meta", {}).get("total", 0)
+        if not page_data:
+            log(f"  → Page {page} empty, stopping pagination")
+            break
+    results["products"] = {"items": all_products, "total": total_products, "pages_fetched": page}
+    log(f"  → {len(all_products)} products fetched (total available: {total_products})")
+    results["meta"]["steps_completed"].append("product_supply")
+
+    # ── Step 4: Top Competitor Deep-Dive ──
+    log("Step 4/6: Competitor deep-dive...")
+    
+    # 4a. Competitor lookup
+    comp_params = {"pageSize": 20, "dateRange": "30d", "marketplace": "US", "page": 1,
+                   "sortBy": "atLeastMonthlySales", "sortOrder": "desc"}
+    if keyword:
+        comp_params["keyword"] = keyword
+    if category_path:
+        comp_params["categoryPath"] = category_path
+    results["competitors"] = safe_call("products/competitor-lookup", comp_params, "competitors")
+
+    # 4b. Pick Top 5 ASINs for realtime (deduplicate by parentAsin)
+    seen_parents = set()
+    top_asins = []
+    for p in all_products:
+        parent = p.get("parentAsin") or p.get("asin")
+        if parent not in seen_parents:
+            seen_parents.add(parent)
+            top_asins.append(p.get("asin"))
+        if len(top_asins) >= 5:
+            break
+
+    realtime_details = []
+    for asin in top_asins:
+        log(f"  → Realtime: {asin}")
+        r = safe_call("realtime/product", {"asin": asin, "marketplace": "US"}, f"realtime {asin}")
+        if r.get("success") is not False:
+            realtime_details.append(r)
+    results["realtime"] = realtime_details
+    results["meta"]["steps_completed"].append("competitor_deepdive")
+
+    # ── Step 5: Trend Analysis ──
+    log("Step 5/6: Trend analysis...")
+    today = time.strftime("%Y-%m-%d")
+    thirty_days_ago = time.strftime("%Y-%m-%d", time.localtime(time.time() - 30 * 86400))
+
+    # Try product-history with Top 3, fallback to older ASINs
+    history_data = []
+    tried_asins = set()
+    
+    # Sort products by listingDate (oldest first) for fallback
+    products_by_age = sorted(
+        [p for p in all_products if p.get("listingDate")],
+        key=lambda x: x.get("listingDate", "9999")
+    )
+
+    # Round 1: Top 3 by sales
+    round1_asins = top_asins[:3]
+    if round1_asins:
+        tried_asins.update(round1_asins)
+        r = safe_call("products/product-history", {
+            "asins": round1_asins,
+            "startDate": thirty_days_ago,
+            "endDate": today,
+        }, "product-history round 1")
+        history_data = r.get("data", [])
+
+    # Round 2: Try oldest products if round 1 was empty
+    if not history_data:
+        round2_asins = [p.get("asin") for p in products_by_age if p.get("asin") not in tried_asins][:5]
+        if round2_asins:
+            log(f"  → Round 1 empty, trying older ASINs: {round2_asins}")
+            tried_asins.update(round2_asins)
+            r = safe_call("products/product-history", {
+                "asins": round2_asins,
+                "startDate": thirty_days_ago,
+                "endDate": today,
+            }, "product-history round 2")
+            history_data = r.get("data", [])
+
+    results["product_history"] = {"data": history_data, "asins_tried": list(tried_asins)}
+    log(f"  → {len(history_data)} history records from {len(tried_asins)} ASINs tried")
+    results["meta"]["steps_completed"].append("trend_analysis")
+
+    # ── Step 6: Consumer Insights ──
+    log("Step 6/6: Consumer insights...")
+    review_results = {}
+    label_types = ["painPoints", "buyingFactors", "improvements"]
+
+    # Priority 1: Category mode
+    category_mode_success = True
+    if category_path:
+        for lt in label_types:
+            log(f"  → reviews/analyze category mode: {lt}")
+            r = safe_call("reviews/analyze", {
+                "categoryPath": category_path,
+                "mode": "category",
+                "labelType": lt,
+                "period": "6m",
+            }, f"reviews {lt}")
+            if r.get("success") is False or not r.get("data", {}).get("consumerInsights"):
+                category_mode_success = False
+                log(f"  ⚠️ Category mode failed for {lt}")
+                break
+            review_results[lt] = r
+
+    # Priority 2: ASIN mode (if category failed)
+    if not category_mode_success or not category_path:
+        log("  → Falling back to ASIN mode...")
+        # Pick ASINs with ratingCount >= 50
+        review_asins = [p.get("asin") for p in all_products if (p.get("ratingCount") or 0) >= 50][:3]
+        if review_asins:
+            for lt in label_types:
+                if lt in review_results:
+                    continue
+                log(f"  → reviews/analyze ASIN mode: {lt} ({review_asins})")
+                r = safe_call("reviews/analyze", {
+                    "asins": review_asins,
+                    "mode": "asin",
+                    "labelType": lt,
+                    "period": "6m",
+                }, f"reviews ASIN {lt}")
+                review_results[lt] = r
+
+    results["reviews"] = review_results
+    results["meta"]["review_mode"] = "category" if category_mode_success and category_path else "asin"
+    results["meta"]["steps_completed"].append("consumer_insights")
+
+    # ── Summary ──
+    log(f"\n✅ Market entry analysis complete!")
+    log(f"   Steps: {', '.join(results['meta']['steps_completed'])}")
+    log(f"   Products: {len(all_products)} | Realtime: {len(realtime_details)} | History: {len(history_data)}")
+    log(f"   Reviews mode: {results['meta']['review_mode']}")
+    
+    output(results, args.format)
+
+
 def cmd_check(args):
     """
     API self-check: verify API connectivity and available endpoints.
@@ -561,6 +858,95 @@ def cmd_check(args):
     print(f"\nAPI Docs: {API_DOCS}", file=sys.stderr)
 
     output({"check": "complete", "endpoints": results}, args.format)
+
+
+# ─── Review Analysis Command ─────────────────────────────────────────────────
+
+def cmd_analyze(args):
+    """Analyze reviews for ASINs or category with AI-powered insights."""
+    params = {}
+    if args.asin:
+        params["asins"] = [args.asin]
+        params["mode"] = "asin"
+    elif args.asins:
+        params["asins"] = [a.strip() for a in args.asins.split(",")]
+        params["mode"] = "asin"
+    elif args.category:
+        params["categoryPath"] = parse_category(args.category)
+        params["mode"] = "category"
+    else:
+        print("ERROR: --asin, --asins, or --category is required.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.label_type:
+        params["labelType"] = args.label_type
+    if args.period:
+        params["period"] = args.period
+
+    result = api_call("reviews/analyze", params)
+    output(result, args.format)
+
+
+# ─── New Endpoint Commands (price-band, brand, history) ──────────────────────
+
+def cmd_price_band_overview(args):
+    """Get price band overview — hottest and best opportunity bands."""
+    params = {}
+    if args.keyword:
+        params["keyword"] = args.keyword
+    if args.category:
+        params["categoryPath"] = parse_category(args.category)
+    params["pageSize"] = args.page_size or 20
+    result = api_call("products/price-band-overview", params)
+    output(result, args.format)
+
+
+def cmd_price_band_detail(args):
+    """Get price band detailed breakdown — all bands with stats."""
+    params = {}
+    if args.keyword:
+        params["keyword"] = args.keyword
+    if args.category:
+        params["categoryPath"] = parse_category(args.category)
+    params["pageSize"] = args.page_size or 20
+    result = api_call("products/price-band-detail", params)
+    output(result, args.format)
+
+
+def cmd_brand_overview(args):
+    """Get brand landscape overview — brand count, CR10, top brand stats."""
+    params = {}
+    if args.keyword:
+        params["keyword"] = args.keyword
+    if args.category:
+        params["categoryPath"] = parse_category(args.category)
+    params["pageSize"] = args.page_size or 20
+    result = api_call("products/brand-overview", params)
+    output(result, args.format)
+
+
+def cmd_brand_detail(args):
+    """Get brand ranking with per-brand statistics."""
+    params = {}
+    if args.keyword:
+        params["keyword"] = args.keyword
+    if args.category:
+        params["categoryPath"] = parse_category(args.category)
+    params["pageSize"] = args.page_size or 20
+    result = api_call("products/brand-detail", params)
+    output(result, args.format)
+
+
+def cmd_product_history(args):
+    """Get historical data (price, BSR, sales) for ASINs over a date range."""
+    asins = [a.strip() for a in args.asins.split(",")]
+    params = {
+        "asins": asins,
+        "startDate": args.start_date,
+        "endDate": args.end_date,
+    }
+    result = api_call("products/product-history", params)
+    output(result, args.format)
 
 
 # ─── CLI Setup ───────────────────────────────────────────────────────────────
@@ -636,8 +1022,11 @@ Examples:
     p_comp.add_argument("--brand", help="Brand filter")
     p_comp.add_argument("--asin", help="ASIN filter")
     p_comp.add_argument("--category", help="Category path (comma-separated)")
+    p_comp.add_argument("--date-range", default="30d", help="Date range (default: 30d)")
+    p_comp.add_argument("--marketplace", default="US", help="Marketplace (default: US)")
+    p_comp.add_argument("--page", type=int, default=1, help="Page number")
     p_comp.add_argument("--page-size", type=int, default=20)
-    p_comp.add_argument("--sort", help="Sort field (default: monthlySales)")
+    p_comp.add_argument("--sort", help="Sort field (default: atLeastMonthlySales)")
     p_comp.add_argument("--order", choices=["asc", "desc"], default="desc")
     p_comp.set_defaults(func=cmd_competitors)
 
@@ -659,6 +1048,56 @@ Examples:
     p_opp.add_argument("--keyword", required=True, help="Category/niche keyword")
     p_opp.add_argument("--mode", help="Product search mode preset")
     p_opp.set_defaults(func=cmd_opportunity)
+
+    # ── market-entry (composite: full analysis) ──
+    p_me = sub.add_parser("market-entry", help="Full market entry analysis (runs ALL endpoints automatically)")
+    p_me.add_argument("--keyword", help="Product keyword or niche")
+    p_me.add_argument("--category", help="Category path (e.g. 'Sports & Outdoors>Sports Sunglasses')")
+    p_me.set_defaults(func=cmd_market_entry)
+
+    # ── analyze (reviews) ──
+    p_analyze = sub.add_parser("analyze", help="AI-powered review analysis")
+    p_analyze.add_argument("--asin", help="Single ASIN")
+    p_analyze.add_argument("--asins", help="Multiple ASINs (comma-separated)")
+    p_analyze.add_argument("--category", help="Category path")
+    p_analyze.add_argument("--label-type", help="Filter dimensions (comma-separated)")
+    p_analyze.add_argument("--period", help="Time period: 1m, 3m, 6m, 1y, 2y", default="6m")
+    p_analyze.set_defaults(func=cmd_analyze)
+
+    # ── price-band-overview ──
+    p_pbo = sub.add_parser("price-band-overview", help="Price band overview (hottest & best opportunity)")
+    p_pbo.add_argument("--keyword", help="Search keyword")
+    p_pbo.add_argument("--category", help="Category path")
+    p_pbo.add_argument("--page-size", type=int, default=20)
+    p_pbo.set_defaults(func=cmd_price_band_overview)
+
+    # ── price-band-detail ──
+    p_pbd = sub.add_parser("price-band-detail", help="Price band detailed breakdown")
+    p_pbd.add_argument("--keyword", help="Search keyword")
+    p_pbd.add_argument("--category", help="Category path")
+    p_pbd.add_argument("--page-size", type=int, default=20)
+    p_pbd.set_defaults(func=cmd_price_band_detail)
+
+    # ── brand-overview ──
+    p_bo = sub.add_parser("brand-overview", help="Brand landscape overview")
+    p_bo.add_argument("--keyword", help="Search keyword")
+    p_bo.add_argument("--category", help="Category path")
+    p_bo.add_argument("--page-size", type=int, default=20)
+    p_bo.set_defaults(func=cmd_brand_overview)
+
+    # ── brand-detail ──
+    p_bd = sub.add_parser("brand-detail", help="Brand ranking with per-brand stats")
+    p_bd.add_argument("--keyword", help="Search keyword")
+    p_bd.add_argument("--category", help="Category path")
+    p_bd.add_argument("--page-size", type=int, default=20)
+    p_bd.set_defaults(func=cmd_brand_detail)
+
+    # ── product-history ──
+    p_ph = sub.add_parser("product-history", help="Historical data for ASINs")
+    p_ph.add_argument("--asins", required=True, help="ASINs (comma-separated)")
+    p_ph.add_argument("--start-date", required=True, help="Start date (YYYY-MM-DD)")
+    p_ph.add_argument("--end-date", required=True, help="End date (YYYY-MM-DD)")
+    p_ph.set_defaults(func=cmd_product_history)
 
     # ── check (API self-check) ──
     p_check = sub.add_parser("check", help="Fetch latest OpenAPI spec to verify available endpoints")
