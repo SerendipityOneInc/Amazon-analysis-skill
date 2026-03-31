@@ -15,7 +15,7 @@ Usage:
     python apiclaw.py opportunity --keyword "pet supplies"
 
 Environment:
-    APICLAW_API_KEY — Required. Get one at https://apiclaw.io/api-keys
+    APICLAW_API_KEY — Required. Get one at https://apiclaw.io/en/api-keys
 """
 
 import argparse
@@ -94,7 +94,7 @@ def get_api_key():
     print("  Method 2: Environment variable", file=sys.stderr)
     print("    export APICLAW_API_KEY='hms_live_yourkey'", file=sys.stderr)
     print("", file=sys.stderr)
-    print("Get a free key at https://apiclaw.io/api-keys", file=sys.stderr)
+    print("Get a free key at https://apiclaw.io/en/api-keys", file=sys.stderr)
     sys.exit(1)
 
 
@@ -149,11 +149,11 @@ def api_call(endpoint: str, params: dict) -> dict:
             status = e.code
             if status == 401:
                 return _error_result(401, "API Key invalid or expired",
-                    "Check your API Key or get a new one at https://apiclaw.io/api-keys",
+                    "Check your API Key or get a new one at https://apiclaw.io/en/api-keys",
                     endpoint, actual_params)
             elif status == 402:
                 return _error_result(402, "API quota exhausted or subscription expired",
-                    "Check your plan at https://apiclaw.io/api-keys or provide a new Key",
+                    "Check your plan at https://apiclaw.io/en/api-keys or provide a new Key",
                     endpoint, actual_params)
             elif status == 429:
                 if attempt < MAX_RETRIES:
@@ -514,13 +514,12 @@ def cmd_check(args):
                 pass
 
     if api_key:
-        masked = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
         source_label = "~/.apiclaw/config.json" if key_source == "config" else "env"
-        print(f"✅ API Key ({source_label}): {masked}", file=sys.stderr)
+        print(f"✅ API Key ({source_label}): configured", file=sys.stderr)
     else:
         print("❌ API Key: Not found", file=sys.stderr)
         print("   Checked: $APICLAW_API_KEY, ~/.apiclaw/config.json", file=sys.stderr)
-        print("   Get one at: https://apiclaw.io/api-keys", file=sys.stderr)
+        print("   Get one at: https://apiclaw.io/en/api-keys", file=sys.stderr)
         sys.exit(1)
 
     print(f"\nTesting endpoints on {BASE_URL}...\n", file=sys.stderr)

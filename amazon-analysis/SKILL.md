@@ -58,7 +58,7 @@ print(f"API Key saved to {config_path}")
 
 **New users please first obtain API Key:**
 
-1. Visit [APIClaw Console](https://apiclaw.io/api-keys) to register account
+1. Visit [APIClaw Console](https://apiclaw.io/en/api-keys) to register account
 2. Create API Key, copy it (format: `hms_live_xxxxxx`)
 3. Tell the AI your Key in conversation, AI will automatically save it to config file
 
