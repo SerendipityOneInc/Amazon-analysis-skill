@@ -14,7 +14,7 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 > All API calls via `scripts/apiclaw.py` — 11 endpoints, built-in error handling.
 
 ## Credentials
-`APICLAW_API_KEY` env var → `https://api.apiclaw.io`. Free key at apiclaw.io/api-keys (1,000 credits).
+`APICLAW_API_KEY` env var → `https://api.apiclaw.io`. Free key at apiclaw.io/en/api-keys (1,000 credits).
 New keys need 3-5s to activate — retry once on 403. Do NOT write keys to disk.
 
 ## File Map

@@ -4,7 +4,7 @@
       "pattern": "^https://api.apiclaw.io"
     },
     {
-      "pattern": "^https://apiclaw.io/api-keys"
+      "pattern": "^https://apiclaw.io/en/api-keys"
     }
   ],
   "timeout": "10s",
