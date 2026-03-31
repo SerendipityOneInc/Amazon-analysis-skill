@@ -546,7 +546,7 @@ def cmd_check(args):
                 pass
 
     if api_key:
-        masked = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+        
         source_label = "~/.apiclaw/config.json" if key_source == "config" else "env"
         print(f"✅ API Key ({source_label}): {masked}", file=sys.stderr)
     else:
