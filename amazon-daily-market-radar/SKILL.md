@@ -31,7 +31,7 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
   ```bash
   export APICLAW_API_KEY='hms_live_xxxxxx'
   ```
-- Get a free key at [apiclaw.io/en/api-keys](https://apiclaw.io/en/api-keys) (1,000 free credits on signup, no credit card required)
+- Get a free key at [apiclaw.io/api-keys](https://apiclaw.io/api-keys) (1,000 free credits on signup, no credit card required)
 - Fallback: The script also checks `config.json` in the skill root directory if the env var is not set.
 - **Do NOT write keys to disk files.** Always recommend the environment variable approach.
 - New keys may need 3-5 seconds to activate — if first call returns 403, wait 3 seconds and retry (max 2 retries).
@@ -76,10 +76,16 @@ Before any data collection, lock down the exact product category:
 3. **If still no match** — use realtime/product on a known ASIN to extract categoryPath from its bestsellersRank field.
 4. **Validate the categoryPath** — ensure it matches the user's intended product type, not a tangentially related category.
 
-Once a precise categoryPath is confirmed, use it as the primary filter for all subsequent API calls:
+Once a precise categoryPath is confirmed, use it as the primary filter for **ALL** subsequent keyword-based list/stats API calls:
+- `products/search` → add `--category "{categoryPath}"`
+- `brand-overview` → add `--category "{categoryPath}"`
+- `brand-detail` → add `--category "{categoryPath}"`
+- `price-band-overview` → add `--category "{categoryPath}"`
+- `price-band-detail` → add `--category "{categoryPath}"`
+- `competitors` → add `--category "{categoryPath}"`
 - `markets/search` → use `--category "{categoryPath}"`
-- `products/search` → add `--category "{categoryPath}"` alongside keyword
-- For endpoints that only accept keyword (brand-overview, brand-detail, price-band), apply **post-retrieval category validation**: check each returned product's/brand's sampleProducts categoryPath against the target category. Exclude mismatches silently.
+
+**⚠️ CRITICAL: All keyword-based list/stats endpoints MUST include --category when categoryPath is locked.** Without it, keyword-only queries return cross-category contamination. ASIN-specific endpoints (realtime/product, product-history, reviews/analyze by ASIN) do NOT need --category.
 
 Record in the final report's Data Provenance section: the final categoryPath used, how it was resolved, and how many results were filtered out.
 
@@ -130,8 +136,8 @@ Use these numbers to support trend labels.
 
 ```bash
 python3 scripts/apiclaw.py market --category "{categoryPath}" --topn 10
-python3 scripts/apiclaw.py brand-overview --keyword "{keyword}"
-python3 scripts/apiclaw.py brand-detail --keyword "{keyword}"
+python3 scripts/apiclaw.py brand-overview --keyword "{keyword}" --category "{categoryPath}"
+python3 scripts/apiclaw.py brand-detail --keyword "{keyword}" --category "{categoryPath}"
 ```
 
 **Category validation:** Cross-check sampleProducts from brand-detail against the target product's categoryPath. Exclude brands whose products are primarily in unrelated categories (e.g. flip-flop brand appearing for "yoga mat" keyword due to title stuffing). This is critical for automated runs — off-topic brands would poison the daily briefing.
@@ -141,7 +147,7 @@ Check: market size changes, new brands entering, brand share shifts. Use sampleP
 ### Step 4 — New Competitor Detection (1 call per keyword)
 
 ```bash
-python3 scripts/apiclaw.py products --keyword "{keyword}" --page-size 20
+python3 scripts/apiclaw.py products --keyword "{keyword}" --category "{categoryPath}" --page-size 20
 ```
 
 Compare today's top 20 against previous run. Flag any new ASINs not seen before.
@@ -149,8 +155,8 @@ Compare today's top 20 against previous run. Flag any new ASINs not seen before.
 ### Step 5 — Price Landscape Check (2 calls per keyword)
 
 ```bash
-python3 scripts/apiclaw.py price-band-overview --keyword "{keyword}"
-python3 scripts/apiclaw.py price-band-detail --keyword "{keyword}"
+python3 scripts/apiclaw.py price-band-overview --keyword "{keyword}" --category "{categoryPath}"
+python3 scripts/apiclaw.py price-band-detail --keyword "{keyword}" --category "{categoryPath}"
 ```
 
 Detect: shifts in price band distribution, opportunity index changes.

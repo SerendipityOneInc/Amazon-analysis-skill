@@ -32,7 +32,7 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
   ```bash
   export APICLAW_API_KEY='hms_live_xxxxxx'
   ```
-- Get a free key at [apiclaw.io/en/api-keys](https://apiclaw.io/en/api-keys) (1,000 free credits on signup, no credit card required)
+- Get a free key at [apiclaw.io/api-keys](https://apiclaw.io/api-keys) (1,000 free credits on signup, no credit card required)
 - Fallback: The script also checks `config.json` in the skill root directory if the env var is not set.
 - **Do NOT write keys to disk files.** Always recommend the environment variable approach.
 - New keys may need 3-5 seconds to activate — if first call returns 403, wait 3 seconds and retry (max 2 retries).
@@ -76,10 +76,16 @@ Before any data collection, lock down the exact product category:
 3. **If still no match** — use realtime/product on a known ASIN to extract categoryPath from its bestsellersRank field.
 4. **Validate the categoryPath** — ensure it matches the user's intended product type, not a tangentially related category.
 
-Once a precise categoryPath is confirmed, use it as the primary filter for all subsequent API calls:
+Once a precise categoryPath is confirmed, use it as the primary filter for **ALL** subsequent keyword-based list/stats API calls:
+- `products/search` → add `--category "{categoryPath}"`
+- `brand-overview` → add `--category "{categoryPath}"`
+- `brand-detail` → add `--category "{categoryPath}"`
+- `price-band-overview` → add `--category "{categoryPath}"`
+- `price-band-detail` → add `--category "{categoryPath}"`
+- `competitors` → add `--category "{categoryPath}"`
 - `markets/search` → use `--category "{categoryPath}"`
-- `products/search` → add `--category "{categoryPath}"` alongside keyword
-- For endpoints that only accept keyword (brand-overview, brand-detail, price-band), apply **post-retrieval category validation**: check each returned product's/brand's sampleProducts categoryPath against the target category. Exclude mismatches silently.
+
+**⚠️ CRITICAL: All keyword-based list/stats endpoints MUST include --category when categoryPath is locked.** Without it, keyword-only queries return cross-category contamination. ASIN-specific endpoints (realtime/product, product-history, reviews/analyze by ASIN) do NOT need --category.
 
 Record in the final report's Data Provenance section: the final categoryPath used, how it was resolved, and how many results were filtered out.
 
@@ -104,8 +110,8 @@ Extract: current BuyBox price, rating, ratingBreakdown, BSR, seller count, featu
 ### Step 2 — Price Band Intelligence (2 calls, same keyword)
 
 ```bash
-python3 scripts/apiclaw.py price-band-overview --keyword "{keyword}"
-python3 scripts/apiclaw.py price-band-detail --keyword "{keyword}"
+python3 scripts/apiclaw.py price-band-overview --keyword "{keyword}" --category "{categoryPath}"
+python3 scripts/apiclaw.py price-band-detail --keyword "{keyword}" --category "{categoryPath}"
 ```
 
 Map user's current price to a band. Identify: which band has highest sales, which has best opportunity index, where user sits relative to optimal.
@@ -117,10 +123,10 @@ Map user's current price to a band. Identify: which band has highest sales, whic
 python3 scripts/apiclaw.py categories --keyword "{keyword}"
 
 # 3b. Top competitors by sales (use categoryPath from 3a to filter noise)
-python3 scripts/apiclaw.py products --keyword "{keyword}" --page-size 20
+python3 scripts/apiclaw.py products --keyword "{keyword}" --category "{categoryPath}" --page-size 20
 
 # 3c. More competitors for price distribution
-python3 scripts/apiclaw.py competitors --keyword "{keyword}" --page-size 20
+python3 scripts/apiclaw.py competitors --keyword "{keyword}" --category "{categoryPath}" --page-size 20
 ```
 
 If competitors endpoint returns empty results, rely on products/search as the primary competitor price source.
@@ -133,8 +139,8 @@ Build price distribution: count competitors at each price point, identify price 
 
 ```bash
 python3 scripts/apiclaw.py market --category "{categoryPath}" --topn 10
-python3 scripts/apiclaw.py brand-overview --keyword "{keyword}"
-python3 scripts/apiclaw.py brand-detail --keyword "{keyword}"
+python3 scripts/apiclaw.py brand-overview --keyword "{keyword}" --category "{categoryPath}"
+python3 scripts/apiclaw.py brand-detail --keyword "{keyword}" --category "{categoryPath}"
 ```
 
 Extract: market avg price, top brand avg price, margin benchmarks. Use sampleProducts from brand-detail to see pricing patterns of leading brands.
@@ -176,7 +182,7 @@ If reviews/analyze fails, silently use topReviews from Step 1/6 realtime data.
 
 Drill into the best opportunity price band:
 ```bash
-python3 scripts/apiclaw.py products --keyword "{keyword}" --price-min {band_min} --price-max {band_max} --page-size 20
+python3 scripts/apiclaw.py products --keyword "{keyword}" --category "{categoryPath}" --price-min {band_min} --price-max {band_max} --page-size 20
 ```
 
 ### Step 9 — Calculate & Recommend
