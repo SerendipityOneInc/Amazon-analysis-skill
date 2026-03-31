@@ -380,7 +380,10 @@ def cmd_competitors(args):
     if args.category:
         params["categoryPath"] = parse_category(args.category)
 
-    params["sortBy"] = args.sort or "monthlySales"
+    params["dateRange"] = args.date_range or "30d"
+    params["marketplace"] = args.marketplace or "US"
+    params["page"] = args.page or 1
+    params["sortBy"] = args.sort or "atLeastMonthlySales"
     params["sortOrder"] = args.order or "desc"
     params["pageSize"] = args.page_size or 20
 
@@ -755,8 +758,11 @@ Examples:
     p_comp.add_argument("--brand", help="Brand filter")
     p_comp.add_argument("--asin", help="ASIN filter")
     p_comp.add_argument("--category", help="Category path (comma-separated)")
+    p_comp.add_argument("--date-range", default="30d", help="Date range (default: 30d)")
+    p_comp.add_argument("--marketplace", default="US", help="Marketplace (default: US)")
+    p_comp.add_argument("--page", type=int, default=1, help="Page number")
     p_comp.add_argument("--page-size", type=int, default=20)
-    p_comp.add_argument("--sort", help="Sort field (default: monthlySales)")
+    p_comp.add_argument("--sort", help="Sort field (default: atLeastMonthlySales)")
     p_comp.add_argument("--order", choices=["asc", "desc"], default="desc")
     p_comp.set_defaults(func=cmd_competitors)
 
