@@ -66,6 +66,10 @@ print(f"API Key saved to {config_path}")
 
 ## File map
 
+> **Path note**: All file paths below are relative to this SKILL.md file's directory.
+> To locate the script: `$(dirname SKILL.md)/scripts/apiclaw.py`
+> If your working directory is not the skill folder, use the full path to the script.
+
 | File | When to use |
 |------|-------------|
 | `SKILL.md` (this file) | Start here — covers 80% of tasks |
