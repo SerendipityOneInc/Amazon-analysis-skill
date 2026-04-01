@@ -37,6 +37,10 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 
 ## File Map
 
+> **Path note**: All file paths below are relative to this SKILL.md file's directory.
+> To locate the script: `$(dirname SKILL.md)/scripts/apiclaw.py`
+> If your working directory is not the skill folder, use the full path to the script.
+
 | File | When to Load |
 |------|-------------|
 | `SKILL.md` (this file) | Always — execution flow + scoring criteria |
