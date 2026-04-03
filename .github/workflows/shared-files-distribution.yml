@@ -1,0 +1,52 @@
+name: Shared Files Distribution
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apiclaw/scripts/apiclaw.py'
+      - 'scripts/**'
+      - 'amazon-*/scripts/apiclaw.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync-and-test:
+    name: Sync Scripts & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Verify all copies are in sync with the canonical source
+      - name: Verify scripts are in sync
+        run: |
+          shopt -s nullglob
+          found=0
+          for skill_dir in amazon-*/; do
+            found=1
+            target="${skill_dir}scripts/apiclaw.py"
+            if [[ ! -f "$target" ]]; then
+              echo "::error::Missing copy file: $target"
+              echo "Run: bash scripts/sync-scripts.sh"
+              exit 1
+            fi
+            if ! diff -q apiclaw/scripts/apiclaw.py "$target" &>/dev/null; then
+              echo "::error::$target does not match apiclaw/scripts/apiclaw.py"
+              echo "Run: bash scripts/sync-scripts.sh"
+              exit 1
+            fi
+          done
+          if [[ "$found" -eq 0 ]]; then
+            echo "::error::No amazon-* skill directories were found, so sync validation cannot run."
+            exit 1
+          fi
+
+      # CLI smoke test against the canonical source
+      - name: CLI smoke test
+        run: python apiclaw/scripts/apiclaw.py --help
