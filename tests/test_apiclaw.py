@@ -116,8 +116,8 @@ class TestParseCategory(unittest.TestCase):
 # ---------------------------------------------------------------------------
 class TestProductModes(unittest.TestCase):
 
-    def test_all_14_modes_defined(self):
-        self.assertEqual(len(apiclaw.PRODUCT_MODES), 14)
+    def test_all_13_modes_defined(self):
+        self.assertEqual(len(apiclaw.PRODUCT_MODES), 13)
 
     def test_all_modes_accepted_by_cli(self):
         """Every mode name must be accepted by 'products --mode <name>' without sys.exit."""
@@ -145,7 +145,7 @@ SUBCOMMANDS = [
     "report", "opportunity", "market-entry", "competitor-analysis",
     "pricing-analysis", "daily-radar", "listing-audit", "opportunity-scan",
     "review-deepdive", "analyze", "price-band-overview", "price-band-detail",
-    "brand-overview", "brand-detail", "product-history", "check",
+    "brand-overview", "brand-detail", "history", "check",
 ]
 
 
@@ -255,7 +255,7 @@ class TestEndpointRouting(unittest.TestCase):
 
     def test_competitors(self):
         r = run_cli("competitors", "--keyword", "yoga")
-        self.assertEqual(r["endpoint"], "products/competitor-lookup")
+        self.assertEqual(r["endpoint"], "products/competitors")
 
     def test_product(self):
         r = run_cli("product", "--asin", "B09V3KXJPB")
