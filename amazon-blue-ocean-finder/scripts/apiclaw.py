@@ -2065,14 +2065,14 @@ Examples:
     sub = parser.add_subparsers(dest="command", required=True)
 
     # ── categories ──
-    p_cat = sub.add_parser("categories", help="Query Amazon category tree")
+    p_cat = sub.add_parser("categories", help="Query Amazon category tree", allow_abbrev=False)
     p_cat.add_argument("--keyword", help="Search categories by keyword")
     p_cat.add_argument("--category", help="Exact category path (comma-separated)")
     p_cat.add_argument("--parent", help="Get child categories (comma-separated parent path)")
     p_cat.set_defaults(func=cmd_categories)
 
     # ── market ──
-    p_mkt = sub.add_parser("market", help="Search market-level data for a category")
+    p_mkt = sub.add_parser("market", help="Search market-level data for a category", allow_abbrev=False)
     p_mkt.add_argument("--category", help="Category path (comma-separated)")
     p_mkt.add_argument("--keyword", help="Category keyword")
     p_mkt.add_argument("--topn", type=int, default=10, help="Top N for concentration analysis (default: 10)")
@@ -2083,7 +2083,7 @@ Examples:
     p_mkt.set_defaults(func=cmd_market)
 
     # ── products ──
-    p_prod = sub.add_parser("products", help="Search products with filters (product selection)")
+    p_prod = sub.add_parser("products", help="Search products with filters (product selection)", allow_abbrev=False)
     p_prod.add_argument("--keyword", help="Search keyword")
     p_prod.add_argument("--category", help="Category path (comma-separated)")
     p_prod.add_argument("--mode", help=f"Preset filter mode: {', '.join(sorted(PRODUCT_MODES.keys()))}")
@@ -2108,7 +2108,7 @@ Examples:
     p_prod.set_defaults(func=cmd_products)
 
     # ── competitors ──
-    p_comp = sub.add_parser("competitors", help="Look up competitors")
+    p_comp = sub.add_parser("competitors", help="Look up competitors", allow_abbrev=False)
     p_comp.add_argument("--keyword", help="Search keyword")
     p_comp.add_argument("--brand", help="Brand filter")
     p_comp.add_argument("--asin", help="ASIN filter")
@@ -2122,60 +2122,60 @@ Examples:
     p_comp.set_defaults(func=cmd_competitors)
 
     # ── product (single ASIN) ──
-    p_single = sub.add_parser("product", help="Get real-time details for one ASIN")
+    p_single = sub.add_parser("product", help="Get real-time details for one ASIN", allow_abbrev=False)
     p_single.add_argument("--asin", required=True, help="ASIN (required)")
     p_single.add_argument("--marketplace", default="US",
                           help="Marketplace: US/UK/DE/FR/IT/ES/JP/CA/AU/IN/MX/BR (default: US)")
     p_single.set_defaults(func=cmd_product)
 
     # ── report (composite) ──
-    p_report = sub.add_parser("report", help="Full market analysis report (composite workflow)")
+    p_report = sub.add_parser("report", help="Full market analysis report (composite workflow)", allow_abbrev=False)
     p_report.add_argument("--keyword", required=True, help="Category/niche keyword")
     p_report.add_argument("--topn", type=int, default=10, help="Top N (default: 10)")
     p_report.set_defaults(func=cmd_report)
 
     # ── opportunity (composite) ──
-    p_opp = sub.add_parser("opportunity", help="Product opportunity discovery (composite workflow)")
+    p_opp = sub.add_parser("opportunity", help="Product opportunity discovery (composite workflow)", allow_abbrev=False)
     p_opp.add_argument("--keyword", required=True, help="Category/niche keyword")
     p_opp.add_argument("--mode", help="Product search mode preset")
     p_opp.set_defaults(func=cmd_opportunity)
 
     # ── market-entry (composite: full analysis) ──
-    p_me = sub.add_parser("market-entry", help="Full market entry analysis (runs ALL endpoints automatically)")
+    p_me = sub.add_parser("market-entry", help="Full market entry analysis (runs ALL endpoints automatically)", allow_abbrev=False)
     p_me.add_argument("--keyword", help="Product keyword or niche")
     p_me.add_argument("--category", help="Category path (e.g. 'Sports & Outdoors>Sports Sunglasses')")
     p_me.set_defaults(func=cmd_market_entry)
 
     # ── competitor-analysis (composite) ──
-    p_ca = sub.add_parser("competitor-analysis", help="Full competitor war room analysis")
+    p_ca = sub.add_parser("competitor-analysis", help="Full competitor war room analysis", allow_abbrev=False)
     p_ca.add_argument("--keyword", help="Product keyword to discover competitors")
     p_ca.add_argument("--my-asin", help="Your product ASIN (optional)")
     p_ca.add_argument("--category", help="Category path")
     p_ca.set_defaults(func=cmd_competitor_analysis)
 
     # ── pricing-analysis (composite) ──
-    p_pa = sub.add_parser("pricing-analysis", help="Full pricing analysis with competitor benchmarking")
+    p_pa = sub.add_parser("pricing-analysis", help="Full pricing analysis with competitor benchmarking", allow_abbrev=False)
     p_pa.add_argument("--my-asin", required=True, help="Your product ASIN")
     p_pa.add_argument("--keyword", help="Product keyword for market context")
     p_pa.add_argument("--category", help="Category path")
     p_pa.set_defaults(func=cmd_pricing_analysis)
 
     # ── daily-radar (composite) ──
-    p_dr = sub.add_parser("daily-radar", help="Daily market monitoring scan (runs all tracking endpoints)")
+    p_dr = sub.add_parser("daily-radar", help="Daily market monitoring scan (runs all tracking endpoints)", allow_abbrev=False)
     p_dr.add_argument("--asins", required=True, help="Tracked ASINs (comma-separated, your products + competitors)")
     p_dr.add_argument("--keyword", help="Category keyword for market monitoring")
     p_dr.add_argument("--category", help="Category path")
     p_dr.set_defaults(func=cmd_daily_radar)
 
     # ── listing-audit (composite) ──
-    p_la = sub.add_parser("listing-audit", help="Full listing audit against category leaders")
+    p_la = sub.add_parser("listing-audit", help="Full listing audit against category leaders", allow_abbrev=False)
     p_la.add_argument("--my-asin", required=True, help="ASIN to audit")
     p_la.add_argument("--keyword", help="Primary keyword for benchmark context")
     p_la.add_argument("--category", help="Category path")
     p_la.set_defaults(func=cmd_listing_audit)
 
     # ── opportunity-scan (composite) ──
-    p_os = sub.add_parser("opportunity-scan", help="Multi-mode product opportunity discovery")
+    p_os = sub.add_parser("opportunity-scan", help="Multi-mode product opportunity discovery", allow_abbrev=False)
     p_os.add_argument("--keyword", help="Category keyword to scan")
     p_os.add_argument("--category", help="Category path")
     p_os.add_argument("--modes", help="Scan modes (comma-separated, e.g. beginner,emerging,underserved). Omit to use custom filters only.")
@@ -2189,7 +2189,7 @@ Examples:
     p_os.set_defaults(func=cmd_opportunity_scan)
 
     # ── review-deepdive (composite) ──
-    p_rd = sub.add_parser("review-deepdive", help="Full 11-dimension review intelligence analysis")
+    p_rd = sub.add_parser("review-deepdive", help="Full 11-dimension review intelligence analysis", allow_abbrev=False)
     p_rd.add_argument("--target-asin", help="ASIN to analyze in depth")
     p_rd.add_argument("--keyword", help="Keyword to find target (if no ASIN)")
     p_rd.add_argument("--comp-asins", help="Competitor ASINs for comparison (comma-separated)")
@@ -2197,7 +2197,7 @@ Examples:
     p_rd.set_defaults(func=cmd_review_deepdive)
 
     # ── analyze (reviews) ──
-    p_analyze = sub.add_parser("analyze", help="AI-powered review analysis")
+    p_analyze = sub.add_parser("analyze", help="AI-powered review analysis", allow_abbrev=False)
     p_analyze.add_argument("--asin", help="Single ASIN")
     p_analyze.add_argument("--asins", help="Multiple ASINs (comma-separated)")
     p_analyze.add_argument("--category", help="Category path")
@@ -2206,7 +2206,7 @@ Examples:
     p_analyze.set_defaults(func=cmd_analyze)
 
     # ── price-band-overview ──
-    p_pbo = sub.add_parser("price-band-overview", help="Price band overview (hottest & best opportunity)")
+    p_pbo = sub.add_parser("price-band-overview", help="Price band overview (hottest & best opportunity)", allow_abbrev=False)
     p_pbo.add_argument("--keyword", help="Search keyword")
     p_pbo.add_argument("--category", help="Category path")
     p_pbo.add_argument("--page-size", type=int, default=20)
@@ -2214,7 +2214,7 @@ Examples:
     p_pbo.set_defaults(func=cmd_price_band_overview)
 
     # ── price-band-detail ──
-    p_pbd = sub.add_parser("price-band-detail", help="Price band detailed breakdown")
+    p_pbd = sub.add_parser("price-band-detail", help="Price band detailed breakdown", allow_abbrev=False)
     p_pbd.add_argument("--keyword", help="Search keyword")
     p_pbd.add_argument("--category", help="Category path")
     p_pbd.add_argument("--page-size", type=int, default=20)
@@ -2222,7 +2222,7 @@ Examples:
     p_pbd.set_defaults(func=cmd_price_band_detail)
 
     # ── brand-overview ──
-    p_bo = sub.add_parser("brand-overview", help="Brand landscape overview")
+    p_bo = sub.add_parser("brand-overview", help="Brand landscape overview", allow_abbrev=False)
     p_bo.add_argument("--keyword", help="Search keyword")
     p_bo.add_argument("--category", help="Category path")
     p_bo.add_argument("--page-size", type=int, default=20)
@@ -2230,7 +2230,7 @@ Examples:
     p_bo.set_defaults(func=cmd_brand_overview)
 
     # ── brand-detail ──
-    p_bd = sub.add_parser("brand-detail", help="Brand ranking with per-brand stats")
+    p_bd = sub.add_parser("brand-detail", help="Brand ranking with per-brand stats", allow_abbrev=False)
     p_bd.add_argument("--keyword", help="Search keyword")
     p_bd.add_argument("--category", help="Category path")
     p_bd.add_argument("--page-size", type=int, default=20)
@@ -2238,14 +2238,14 @@ Examples:
     p_bd.set_defaults(func=cmd_brand_detail)
 
     # ── product-history ──
-    p_ph = sub.add_parser("product-history", help="Historical data for ASINs")
+    p_ph = sub.add_parser("product-history", help="Historical data for ASINs", allow_abbrev=False)
     p_ph.add_argument("--asins", required=True, help="ASINs (comma-separated)")
     p_ph.add_argument("--start-date", required=True, help="Start date (YYYY-MM-DD)")
     p_ph.add_argument("--end-date", required=True, help="End date (YYYY-MM-DD)")
     p_ph.set_defaults(func=cmd_product_history)
 
     # ── check (API self-check) ──
-    p_check = sub.add_parser("check", help="Fetch latest OpenAPI spec to verify available endpoints")
+    p_check = sub.add_parser("check", help="Fetch latest OpenAPI spec to verify available endpoints", allow_abbrev=False)
     p_check.set_defaults(func=cmd_check)
 
     args = parser.parse_args()
