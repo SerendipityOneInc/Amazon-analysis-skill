@@ -1,12 +1,6 @@
 name: Shared Files Distribution
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'apiclaw/scripts/apiclaw.py'
-      - 'scripts/**'
-      - 'amazon-*/scripts/apiclaw.py'
   pull_request:
     branches: [main]
     paths:
