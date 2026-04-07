@@ -34,7 +34,7 @@ Response: `categoryId`, `categoryName`, `categoryPath`, `hasChildren`, `isRoot`,
 | sampleType | String | `by_sale_100` / `by_bsr_100` / `avg` |
 | dateRange | String | default `30d` |
 | pageSize | Integer | default 20 |
-| sortBy | String | default `sampleAvgMonthlySaleAmt` |
+| sortBy | String | default `sampleAvgMonthlySales` |
 | sortOrder | String | `asc` / `desc` |
 
 Key response fields: `sampleAvgMonthlySales`, `sampleAvgPrice`, `sampleAvgMonthlyRevenue`, `sampleBrandCount`, `sampleSellerCount`, `sampleFbaRate`, `sampleNewSkuRate`, `topSalesRate`, `topBrandSalesRate`, `topSellerSalesRate`, `totalSkuCount`
@@ -92,14 +92,15 @@ Response fields: `asin`, `title`, `brand`, `rating`, `ratingCount`, `ratingBreak
 | mode | String | **Yes** | `asin` or `category` |
 | asins | List\<String\> | When mode=asin | ⚠️ plural, array format |
 | categoryPath | String | When mode=category | Category path |
-| labelType | String | No | Filter to dimension |
-| period | String | No | e.g. `90d` |
+| period | String | No | e.g. `6m` |
 
-labelType values: `scenarios`, `issues`, `positives`, `improvements`, `buyingFactors`, `painPoints`, `keywords`, `userProfiles`, `usageTimes`, `usageLocations`, `behaviors`
+⚠️ `labelType` is **not** an API request parameter. The API returns all 11 dimensions in one call. Filter by `labelType` client-side from the `consumerInsights` array.
 
 Response: `reviewCount`, `avgRating`, `verifiedRate`, `ratingDistribution`, `sentimentDistribution`, `consumerInsights` (list of InsightItem), `topKeywords`
 
 InsightItem: `element`, `labelType`, `count`, `reviewRate`, `avgRating`
+
+labelType values (in response): `scenarios`, `issues`, `positives`, `improvements`, `buyingFactors`, `painPoints`, `keywords`, `userProfiles`, `usageTimes`, `usageLocations`, `behaviors`
 
 ---
 

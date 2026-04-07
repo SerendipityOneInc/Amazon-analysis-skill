@@ -34,11 +34,11 @@ Required: `APICLAW_API_KEY`. Get free key at [apiclaw.io/api-keys](https://apicl
 
 ## Input
 
-Required: my_asin + keyword. Collect missing inputs in ONE message.
+Required: my_asin. Optional: keyword, category. Category is auto-detected from ASIN via `realtime/product` if not provided. If `category_source` is `inferred_from_search`, confirm with user before proceeding.
 
 ## API Pitfalls (CRITICAL)
 
-1. **Category first**: MUST resolve categoryPath via `categories --keyword` before data collection
+1. **Category auto-detection**: categoryPath is auto-detected from ASIN. If `category_source` in output is `inferred_from_search`, confirm with user
 2. **All keyword-based endpoints MUST include `--category`**; ASIN-specific endpoints do NOT
 3. **Use API fields directly**: revenue=`sampleAvgMonthlyRevenue` (NEVER price×sales), sales=`monthlySalesFloor`, opportunity=`sampleOpportunityIndex`
 4. **reviews/analysis**: needs 50+ reviews; ASIN mode first, category fallback
@@ -46,8 +46,7 @@ Required: my_asin + keyword. Collect missing inputs in ONE message.
 
 ## Execution
 
-1. Resolve & lock categoryPath
-2. `listing-audit --my-asin X --keyword Y --category Z` (composite, runs all endpoints automatically)
+1. `listing-audit --my-asin X [--keyword Y] [--category Z]` (composite, auto-detects category from ASIN)
 3. Score 8 dimensions → generate report with improvements
 
 ## 8 Scoring Dimensions
@@ -71,9 +70,43 @@ Sections: Overall Score (X/100, A-F grade) → 8-Dimension Scorecard → Title A
 
 Suggested rewrites should incorporate high-frequency positive review language.
 
-Confidence labels: 📊 Data-backed | 🔍 Inferred | 💡 Directional. Strategy is NEVER 📊. User criteria override AI judgment.
+### Language (required)
+
+Output language MUST match the user's input language. If the user asks in Chinese, the entire report is in Chinese. If in English, output in English. Exception: API field names (e.g. `monthlySalesFloor`, `categoryPath`), endpoint names, technical terms (e.g. ASIN, BSR, CR10, FBA, credits) remain in English.
+
+### Disclaimer (required, at the top of every report)
+
+> Data is based on APIClaw API sampling as of [date]. Monthly sales (`monthlySalesFloor`) are lower-bound estimates. This analysis is for reference only and should not be the sole basis for business decisions. Validate with additional sources before acting.
+
+### Confidence Labels (required, tag EVERY conclusion)
+
+- 📊 **Data-backed** — direct API data (e.g. "CR10 = 54.8% 📊")
+- 🔍 **Inferred** — logical reasoning from data (e.g. "brand concentration is moderate 🔍")
+- 💡 **Directional** — suggestions, predictions, strategy (e.g. "consider entering $10-15 band 💡")
+
+Rules: Strategy recommendations are NEVER 📊. User criteria override AI judgment.
 
 Bulk audit: share market data across ASINs, run audit per ASIN.
+
+### Data Provenance (required)
+
+Include a table at the end of every report:
+
+| Data | Endpoint | Key Params | Notes |
+|------|----------|------------|-------|
+| (e.g. Market Overview) | `markets/search` | categoryPath, topN=10 | 📊 Top N sampling, sales are lower-bound |
+| ... | ... | ... | ... |
+
+Extract endpoint and params from `_query` in JSON output. Add notes: sampling method, T+1 delay, realtime vs DB, minimum review threshold, etc.
+
+### API Usage (required)
+
+| Endpoint | Calls | Credits |
+|----------|-------|---------|
+| (each endpoint used) | N | N |
+| **Total** | **N** | **N** |
+
+Extract from `meta.creditsConsumed` per response. End with `Credits remaining: N`.
 
 ## API Budget: ~20-25 credits
 
