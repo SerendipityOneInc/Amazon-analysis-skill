@@ -215,22 +215,36 @@ labelType values (in response): `scenarios`, `issues`, `positives`, `improvement
 
 | Parameter | Type | Required | Note |
 |-----------|------|----------|------|
-| asins | List\<String\> | **Yes** | One or more ASINs |
+| asin | String | **Yes** | Single ASIN (one per call) |
 | startDate | String | **Yes** | Start date `YYYY-MM-DD` |
 | endDate | String | **Yes** | End date `YYYY-MM-DD` |
+| marketplace | String | No | Marketplace code, default `US` |
 
-⚠️ Uses `startDate`/`endDate` — NOT `dateRange`. Date format is `YYYY-MM-DD`.
+⚠️ `asin` is a **single string** — NOT an array. For multiple ASINs, make separate calls.
+⚠️ Does NOT support `page`/`pageSize` — returns full date range in one response.
+⚠️ Uses `startDate`/`endDate` — NOT `dateRange`.
 
-**Response:** Array of daily snapshot objects per ASIN.
+**Response:** Single time series object (NOT an array of snapshots).
 
 | Field | Type | Note |
 |-------|------|------|
 | asin | String | Product ASIN |
-| price | Float | Price on that date |
-| bsr | Integer | BSR rank on that date |
-| subBsr | Integer | Sub-category BSR rank |
-| recentSales | Integer | Recent sales estimate |
-| updatedAt | String | Timestamp of the snapshot |
+| timestamps | List\<String\> | Dates (YYYY-MM-DD) |
+| price | List\<Float\> | Price on each date |
+| bsr | List\<Integer\> | BSR on each date |
+| subBsr | List\<Integer\> | Sub-category BSR |
+| monthlySalesFloor | List\<Integer\> | Monthly sales lower bound |
+| rating | List\<Float\> | Rating on each date |
+| ratingCount | List\<Integer\> | Review count on each date |
+| sellerCount | List\<Integer\> | Seller count |
+| title | List\<ChangeLog\> | Title changes `{date, value}` |
+| imageUrl | List\<ChangeLog\> | Main image changes `{date, value}` |
+| bestSeller | List\<ChangeLog\> | Best Seller badge `{date, value}` |
+| amazonChoice | List\<ChangeLog\> | Amazon's Choice badge `{date, value}` |
+| newRelease | List\<ChangeLog\> | New Release badge `{date, value}` |
+| aPlus | List\<ChangeLog\> | A+ content status `{date, value}` |
+| inventoryStatus | List\<ChangeLog\> | Stock status `{date, value}` |
+| currency | String | e.g. `USD` |
 
 ---
 

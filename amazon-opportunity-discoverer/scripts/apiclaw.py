@@ -234,6 +234,25 @@ def _filter_review_insights(result, label_type):
     return filtered
 
 
+def _fetch_all_history(api_caller, asins, start_date, end_date, log_fn=None):
+    """Fetch products/history for multiple ASINs (one API call per ASIN)."""
+    all_data = []
+    last_response = None
+    for asin in asins:
+        r = api_caller("products/history", {
+            "asin": asin, "startDate": start_date, "endDate": end_date,
+        }, f"history {asin}")
+        last_response = r
+        if r.get("data"):
+            all_data.append(r["data"])
+        elif log_fn:
+            log_fn(f"  ⚠️ No history data for {asin}")
+    if last_response is None:
+        return {"success": False, "data": [], "error": {"message": "No ASINs provided"}}
+    last_response["data"] = all_data
+    return last_response
+
+
 def _resolve_category(api_caller, log_fn, keyword=None, asin=None, results=None):
     """
     Resolve categoryPath with multi-level fallback.
@@ -818,11 +837,7 @@ def cmd_market_entry(args):
     round1_asins = top_asins[:3]
     if round1_asins:
         tried_asins.update(round1_asins)
-        r = safe_call("products/history", {
-            "asins": round1_asins,
-            "startDate": thirty_days_ago,
-            "endDate": today,
-        }, "history round 1")
+        r = _fetch_all_history(safe_call, round1_asins, thirty_days_ago, today, log_fn=log)
         history_data = r.get("data", [])
 
     # Round 2: Try oldest products if round 1 was empty
@@ -831,11 +846,7 @@ def cmd_market_entry(args):
         if round2_asins:
             log(f"  → Round 1 empty, trying older ASINs: {round2_asins}")
             tried_asins.update(round2_asins)
-            r = safe_call("products/history", {
-                "asins": round2_asins,
-                "startDate": thirty_days_ago,
-                "endDate": today,
-            }, "history round 2")
+            r = _fetch_all_history(safe_call, round2_asins, thirty_days_ago, today, log_fn=log)
             history_data = r.get("data", [])
 
     results["product_history"] = {"data": history_data, "asins_tried": list(tried_asins)}
@@ -1012,9 +1023,7 @@ def cmd_competitor_analysis(args):
     today = time.strftime("%Y-%m-%d")
     thirty_ago = time.strftime("%Y-%m-%d", time.localtime(time.time() - 30 * 86400))
     history_asins = ([my_asin] if my_asin else []) + top_asins[:5]
-    r = safe_call("products/history", {
-        "asins": history_asins[:8], "startDate": thirty_ago, "endDate": today
-    }, "history")
+    r = _fetch_all_history(safe_call, history_asins[:8], thirty_ago, today, log_fn=log)
     results["product_history"] = {"data": r.get("data", []), "asins_tried": history_asins[:8]}
     results["meta"]["steps_completed"].append("historical_trends")
 
@@ -1198,9 +1207,7 @@ def cmd_pricing_analysis(args):
             break
 
     history_asins = [my_asin] + comp_asins
-    r = safe_call("products/history", {
-        "asins": history_asins, "startDate": thirty_ago, "endDate": today
-    }, "history")
+    r = _fetch_all_history(safe_call, history_asins, thirty_ago, today, log_fn=log)
     results["product_history"] = {"data": r.get("data", []), "asins_tried": history_asins}
     results["meta"]["steps_completed"].append("price_trends")
 
@@ -1308,11 +1315,7 @@ def cmd_daily_radar(args):
     tried_asins = set()
     
     # Round 1: All tracked ASINs
-    r = safe_call("products/history", {
-        "asins": tracked_asins,
-        "startDate": seven_days_ago,
-        "endDate": today,
-    }, "history round 1")
+    r = _fetch_all_history(safe_call, tracked_asins, seven_days_ago, today, log_fn=log)
     history_data = r.get("data", [])
     tried_asins.update(tracked_asins)
 
@@ -1571,9 +1574,7 @@ def cmd_listing_audit(args):
     today = time.strftime("%Y-%m-%d")
     thirty_ago = time.strftime("%Y-%m-%d", time.localtime(time.time() - 30 * 86400))
     history_asins = [my_asin] + leader_asins[:2]
-    r = safe_call("products/history", {
-        "asins": history_asins, "startDate": thirty_ago, "endDate": today
-    }, "history")
+    r = _fetch_all_history(safe_call, history_asins, thirty_ago, today, log_fn=log)
     results["product_history"] = {"data": r.get("data", []), "asins_tried": history_asins}
     results["meta"]["steps_completed"].append("trend_context")
 
@@ -1766,9 +1767,7 @@ def cmd_opportunity_scan(args):
     log("Step 5/6: Trend check...")
     today = time.strftime("%Y-%m-%d")
     thirty_ago = time.strftime("%Y-%m-%d", time.localtime(time.time() - 30 * 86400))
-    r = safe_call("products/history", {
-        "asins": top_asins[:5], "startDate": thirty_ago, "endDate": today
-    }, "history")
+    r = _fetch_all_history(safe_call, top_asins[:5], thirty_ago, today, log_fn=log)
     results["product_history"] = {"data": r.get("data", []), "asins_tried": top_asins[:5]}
     results["meta"]["steps_completed"].append("trend_check")
 
@@ -1942,9 +1941,7 @@ def cmd_review_deepdive(args):
     thirty_ago = time.strftime("%Y-%m-%d", time.localtime(time.time() - 30 * 86400))
     hist_asins = [target_asin] + comp_asins[:2] if target_asin else comp_asins[:3]
     if hist_asins:
-        r = safe_call("products/history", {
-            "asins": hist_asins, "startDate": thirty_ago, "endDate": today
-        }, "history")
+        r = _fetch_all_history(safe_call, hist_asins, thirty_ago, today, log_fn=log)
         results["product_history"] = {"data": r.get("data", []), "asins_tried": hist_asins}
     results["meta"]["steps_completed"].append("price_trend_context")
 
@@ -2119,12 +2116,11 @@ def cmd_brand_detail(args):
 def cmd_product_history(args):
     """Get historical data (price, BSR, sales) for ASINs over a date range."""
     asins = [a.strip() for a in args.asins.split(",")]
-    params = {
-        "asins": asins,
-        "startDate": args.start_date,
-        "endDate": args.end_date,
-    }
-    result = api_call("products/history", params)
+
+    def _api_caller(endpoint, p, label=""):
+        return api_call(endpoint, p)
+
+    result = _fetch_all_history(_api_caller, asins, args.start_date, args.end_date)
     output(result, args.format)
 
 
