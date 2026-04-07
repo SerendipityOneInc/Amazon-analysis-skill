@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import sys
+import random
 import time
 import urllib.request
 import urllib.error
@@ -35,9 +36,15 @@ import urllib.error
 
 BASE_URL = "https://api.apiclaw.io/openapi/v2"  # APIClaw API base URL
 API_DOCS = "https://api.apiclaw.io/api-docs"   # API documentation URL
-MAX_RETRIES = 2       # Maximum number of retry attempts for failed requests
-RETRY_DELAY = 2       # Initial retry delay in seconds; doubles on 429 (rate limit)
+MAX_RETRIES = 3       # Maximum number of retry attempts for failed requests
+RETRY_DELAY = 2       # Initial retry delay in seconds; doubles on each retry
+RATE_LIMIT_RETRIES = 4  # Extra retries specifically for 429 rate limits
+RATE_LIMIT_DELAY = 5    # Initial delay for 429 retries (seconds); doubles each time
+MIN_REQUEST_INTERVAL = 0.6  # Minimum seconds between requests (100 req/min = 0.6s)
 REQUEST_TIMEOUT = 60  # Request timeout in seconds; realtime/product can be slow (up to 30s)
+
+# Global request pacer — prevents burst rate limit violations
+_last_request_time = 0.0
 
 # 13 built-in product selection modes
 # Each maps to a set of products/search filter parameters
@@ -110,6 +117,8 @@ def api_call(endpoint: str, params: dict) -> dict:
     Returns the parsed JSON response on success, with _query metadata injected.
     Exits with a clear error message on failure.
     """
+    global _last_request_time
+
     url = f"{BASE_URL}/{endpoint}"
     api_key = get_api_key()
 
@@ -131,8 +140,16 @@ def api_call(endpoint: str, params: dict) -> dict:
         "User-Agent": "APIClaw-CLI/1.0 (Python)",
     }
 
+    # Rate-limit pacing: enforce minimum interval between requests
+    now = time.monotonic()
+    elapsed = now - _last_request_time
+    if elapsed < MIN_REQUEST_INTERVAL:
+        time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+
     delay = RETRY_DELAY
-    for attempt in range(1, MAX_RETRIES + 1):
+    max_attempts = MAX_RETRIES
+    for attempt in range(1, max_attempts + 1):
+        _last_request_time = time.monotonic()
         try:
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
@@ -163,9 +180,15 @@ def api_call(endpoint: str, params: dict) -> dict:
                     "Check your plan at https://apiclaw.io/en/api-keys or provide a new Key",
                     endpoint, actual_params)
             elif status == 429:
-                if attempt < MAX_RETRIES:
-                    print(f"Rate limited (429). Waiting {delay}s before retry {attempt}/{MAX_RETRIES}...", file=sys.stderr)
-                    time.sleep(delay)
+                # Switch to longer retry strategy for rate limits
+                if attempt == 1:
+                    max_attempts = RATE_LIMIT_RETRIES
+                    delay = RATE_LIMIT_DELAY
+                if attempt < max_attempts:
+                    jitter = random.uniform(0, delay * 0.25)
+                    wait = delay + jitter
+                    print(f"Rate limited (429). Waiting {wait:.1f}s before retry {attempt}/{max_attempts}...", file=sys.stderr)
+                    time.sleep(wait)
                     delay *= 2
                     continue
                 else:
@@ -177,17 +200,17 @@ def api_call(endpoint: str, params: dict) -> dict:
                     f"Check {API_DOCS} for current endpoints",
                     endpoint, actual_params)
             else:
-                if attempt < MAX_RETRIES:
-                    print(f"HTTP {status}. Retrying {attempt}/{MAX_RETRIES}...", file=sys.stderr)
+                if attempt < max_attempts:
+                    print(f"HTTP {status}. Retrying {attempt}/{max_attempts}...", file=sys.stderr)
                     time.sleep(delay)
                     continue
                 else:
-                    return _error_result(status, f"HTTP {status} after {MAX_RETRIES} attempts",
+                    return _error_result(status, f"HTTP {status} after {max_attempts} attempts",
                         "Check network or try again later",
                         endpoint, actual_params)
         except Exception as e:
-            if attempt < MAX_RETRIES:
-                print(f"Request failed: {e}. Retrying {attempt}/{MAX_RETRIES}...", file=sys.stderr)
+            if attempt < max_attempts:
+                print(f"Request failed: {e}. Retrying {attempt}/{max_attempts}...", file=sys.stderr)
                 time.sleep(delay)
                 continue
             else:
@@ -196,6 +219,94 @@ def api_call(endpoint: str, params: dict) -> dict:
                     endpoint, actual_params)
 
     return _error_result(0, "Unexpected retry loop exit", "This should not happen", endpoint, actual_params)
+
+
+def _filter_review_insights(result, label_type):
+    """Return a shallow copy of a reviews/analysis result filtered to one labelType."""
+    if not result.get("data") or not result["data"].get("consumerInsights"):
+        return result
+    filtered = dict(result)
+    filtered["data"] = dict(result["data"])
+    filtered["data"]["consumerInsights"] = [
+        i for i in result["data"]["consumerInsights"]
+        if i.get("labelType") == label_type
+    ]
+    return filtered
+
+
+def _resolve_category(api_caller, log_fn, keyword=None, asin=None, results=None):
+    """
+    Resolve categoryPath with multi-level fallback.
+    Returns (category_path, category_source) tuple.
+
+    Priority:
+      1. keyword → categories API
+      2. asin → realtime/product → categoryPath or bestsellersRank leaf
+      3. keyword → products/search → first result → realtime/product
+    """
+    category_path = None
+    category_source = "user"
+
+    # Priority 1: keyword → categories
+    if keyword:
+        log_fn("Step 0: Resolving category...")
+        cat_result = api_caller("categories", {"categoryKeyword": keyword}, "categories")
+        if results is not None:
+            results["categories"] = cat_result
+        cat_data = cat_result.get("data", [])
+        if cat_data:
+            category_path = cat_data[0].get("categoryPath")
+            category_source = "keyword"
+
+    # Priority 2: asin → realtime/product
+    if not category_path and asin:
+        log_fn("  → Resolving category from ASIN...")
+        rt = api_caller("realtime/product", {"asin": asin, "marketplace": "US"}, f"realtime {asin}")
+        if results is not None:
+            results.setdefault("_asin_realtime", rt)
+        rt_data = rt.get("data", {}) or {}
+        if rt_data.get("categoryPath"):
+            category_path = rt_data["categoryPath"]
+            category_source = "asin_realtime"
+            log_fn(f"  → Auto-detected category: {' > '.join(category_path)}")
+        elif rt_data.get("bestsellersRank"):
+            leaf = rt_data["bestsellersRank"][-1].get("category", "")
+            if leaf:
+                log_fn(f"  → Resolving category from BSR leaf: {leaf}")
+                cat_result = api_caller("categories", {"categoryKeyword": leaf}, "categories")
+                cat_data = cat_result.get("data", [])
+                if cat_data:
+                    category_path = cat_data[0].get("categoryPath")
+                    category_source = "asin_bsr"
+                    log_fn(f"  → Auto-detected category: {' > '.join(category_path)}")
+
+    # Priority 3: keyword → search → first product → realtime
+    if not category_path and keyword:
+        log_fn("  → Resolving category from top search result...")
+        prod_result = api_caller("products/search", {
+            "keyword": keyword, "sortBy": "monthlySalesFloor", "sortOrder": "desc", "pageSize": 5
+        }, "products (category probe)")
+        prod_data = prod_result.get("data", [])
+        if isinstance(prod_data, list) and prod_data:
+            probe_asin = prod_data[0].get("asin")
+            if probe_asin:
+                rt = api_caller("realtime/product", {"asin": probe_asin, "marketplace": "US"}, f"realtime {probe_asin}")
+                rt_data = rt.get("data", {}) or {}
+                if rt_data.get("categoryPath"):
+                    category_path = rt_data["categoryPath"]
+                    category_source = "inferred_from_search"
+                    log_fn(f"  ⚠️ Auto-inferred category: {' > '.join(category_path)} — AI should confirm with user")
+                elif rt_data.get("bestsellersRank"):
+                    leaf = rt_data["bestsellersRank"][-1].get("category", "")
+                    if leaf:
+                        cat_result = api_caller("categories", {"categoryKeyword": leaf}, "categories")
+                        cat_data = cat_result.get("data", [])
+                        if cat_data:
+                            category_path = cat_data[0].get("categoryPath")
+                            category_source = "inferred_from_search"
+                            log_fn(f"  ⚠️ Auto-inferred category: {' > '.join(category_path)} — AI should confirm with user")
+
+    return category_path, category_source
 
 
 def _error_result(status: int, message: str, action: str, endpoint: str, params: dict) -> dict:
@@ -344,9 +455,9 @@ def cmd_products(args):
     if args.fulfillment:
         params["fulfillments"] = args.fulfillment
     if args.include_brands:
-        params["includeBrands"] = args.include_brands
+        params["includeBrands"] = [b.strip() for b in args.include_brands.split(",")]
     if args.exclude_brands:
-        params["excludeBrands"] = args.exclude_brands
+        params["excludeBrands"] = [b.strip() for b in args.exclude_brands.split(",")]
 
     params["sortBy"] = args.sort or "monthlySalesFloor"
     params["sortOrder"] = args.order or "desc"
@@ -453,7 +564,7 @@ def cmd_report(args):
     print("Step 3/4: Searching top products...", file=sys.stderr)
     products_result = api_call("products/search", {
         "keyword": keyword,
-        "sortBy": "monthlySales",
+        "sortBy": "monthlySalesFloor",
         "sortOrder": "desc",
         "pageSize": 50,
     })
@@ -508,7 +619,7 @@ def cmd_opportunity(args):
         "keyword": keyword,
         "monthlySalesMin": 300,
         "ratingCountMax": 50,
-        "sortBy": "monthlySales",
+        "sortBy": "monthlySalesFloor",
         "sortOrder": "desc",
         "pageSize": 20,
     }
@@ -565,17 +676,9 @@ def cmd_market_entry(args):
         return r
 
     # ── Step 0.5: Category Resolution ──
-    if not category_path and keyword:
-        log("Step 0.5: Resolving category...")
-        cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
-        results["categories"] = cat_result
-        cat_data = cat_result.get("data", [])
-        if cat_data:
-            category_path = cat_data[0].get("categoryPath")
-            log(f"  → Locked category: {' > '.join(category_path)}")
-        else:
-            log("  ⚠️ No category match, will use keyword-only queries")
-
+    if not category_path:
+        category_path, category_source = _resolve_category(safe_call, log, keyword=keyword, results=results)
+        results["meta"]["category_source"] = category_source
     results["meta"]["resolved_category"] = category_path
 
     # ── Step 1: Market Landscape (3 calls) ──
@@ -744,43 +847,36 @@ def cmd_market_entry(args):
     review_results = {}
     label_types = ["painPoints", "buyingFactors", "improvements"]
 
-    # Priority 1: Category mode
-    category_mode_success = True
+    # Priority 1: Category mode (single call, split client-side)
+    category_mode_success = False
     if category_path:
-        for lt in label_types:
-            log(f"  → reviews/analysis category mode: {lt}")
-            r = safe_call("reviews/analysis", {
-                "categoryPath": category_path,
-                "mode": "category",
-                "labelType": lt,
-                "period": "6m",
-            }, f"reviews {lt}")
-            if r.get("success") is False or not r.get("data", {}).get("consumerInsights"):
-                category_mode_success = False
-                log(f"  ⚠️ Category mode failed for {lt}")
-                break
-            review_results[lt] = r
+        log("  → reviews/analysis category mode")
+        r = safe_call("reviews/analysis", {
+            "categoryPath": category_path,
+            "mode": "category",
+            "period": "6m",
+        }, "reviews category")
+        if r.get("success") and r.get("data", {}).get("consumerInsights"):
+            category_mode_success = True
+            for lt in label_types:
+                review_results[lt] = _filter_review_insights(r, lt)
 
     # Priority 2: ASIN mode (if category failed)
-    if not category_mode_success or not category_path:
+    if not category_mode_success:
         log("  → Falling back to ASIN mode...")
-        # Pick ASINs with ratingCount >= 50
         review_asins = [p.get("asin") for p in all_products if (p.get("ratingCount") or 0) >= 50][:3]
         if review_asins:
+            log(f"  → reviews/analysis ASIN mode ({review_asins})")
+            r = safe_call("reviews/analysis", {
+                "asins": review_asins,
+                "mode": "asin",
+                "period": "6m",
+            }, "reviews ASIN")
             for lt in label_types:
-                if lt in review_results:
-                    continue
-                log(f"  → reviews/analysis ASIN mode: {lt} ({review_asins})")
-                r = safe_call("reviews/analysis", {
-                    "asins": review_asins,
-                    "mode": "asin",
-                    "labelType": lt,
-                    "period": "6m",
-                }, f"reviews ASIN {lt}")
-                review_results[lt] = r
+                review_results[lt] = _filter_review_insights(r, lt)
 
     results["reviews"] = review_results
-    results["meta"]["review_mode"] = "category" if category_mode_success and category_path else "asin"
+    results["meta"]["review_mode"] = "category" if category_mode_success else "asin"
     results["meta"]["steps_completed"].append("consumer_insights")
 
     # ── Summary ──
@@ -819,14 +915,9 @@ def cmd_competitor_analysis(args):
 
     # Category Resolution
     if not category_path:
-        if keyword:
-            log("Step 0: Resolving category...")
-            cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
-            results["categories"] = cat_result
-            cat_data = cat_result.get("data", [])
-            if cat_data:
-                category_path = cat_data[0].get("categoryPath")
-    results["meta"]["resolved_category"] = category_path
+        category_path, category_source = _resolve_category(
+            safe_call, log, keyword=keyword, asin=my_asin, results=results)
+        results["meta"]["category_source"] = category_source
 
     # Step 1: Competitor Discovery
     log("Step 1/7: Competitor discovery...")
@@ -844,6 +935,7 @@ def cmd_competitor_analysis(args):
     if category_path:
         comp_params["categoryPath"] = category_path
     results["competitors"] = safe_call("products/competitors", comp_params, "competitors")
+    results["meta"]["resolved_category"] = category_path
     results["meta"]["steps_completed"].append("competitor_discovery")
 
     # Step 2: Market Context
@@ -931,16 +1023,17 @@ def cmd_competitor_analysis(args):
     review_results = {}
     for asin in top_asins[:5]:
         r = safe_call("reviews/analysis", {
-            "asins": [asin], "mode": "asin", "labelType": "painPoints", "period": "6m"
+            "asins": [asin], "mode": "asin", "period": "6m"
         }, f"reviews {asin}")
         if r.get("data") and r.get("data", {}).get("consumerInsights"):
             review_results[asin] = r
     if not review_results and category_path:
         log("  → Falling back to category mode...")
+        r = safe_call("reviews/analysis", {
+            "categoryPath": category_path, "mode": "category", "period": "6m"
+        }, "reviews category")
         for lt in ["painPoints", "buyingFactors"]:
-            review_results[lt] = safe_call("reviews/analysis", {
-                "categoryPath": category_path, "mode": "category", "labelType": lt, "period": "6m"
-            }, f"reviews cat {lt}")
+            review_results[lt] = _filter_review_insights(r, lt)
     results["reviews"] = review_results
     results["meta"]["steps_completed"].append("review_intelligence")
 
@@ -955,7 +1048,7 @@ def cmd_competitor_analysis(args):
                 bp["keyword"] = keyword
             if category_path:
                 bp["categoryPath"] = category_path
-            bp["includeBrands"] = top_brand
+            bp["includeBrands"] = [top_brand]
             results["top_brand_products"] = safe_call("products/search", bp, f"brand {top_brand}")
     results["meta"]["steps_completed"].append("brand_drilldown")
 
@@ -969,6 +1062,7 @@ def cmd_pricing_analysis(args):
     """
     Composite workflow: Pricing Analysis.
     Runs: realtime(my_asin) → price-band → products/competitors → market/brand → history → realtime(top5) → reviews
+    Category is auto-detected from ASIN if not provided.
     """
     my_asin = args.my_asin
     keyword = args.keyword
@@ -976,9 +1070,6 @@ def cmd_pricing_analysis(args):
 
     if not my_asin:
         print("ERROR: --my-asin is required.", file=sys.stderr)
-        sys.exit(1)
-    if not keyword and not category:
-        print("ERROR: --keyword or --category is required.", file=sys.stderr)
         sys.exit(1)
 
     category_path = parse_category(category) if category else None
@@ -993,21 +1084,40 @@ def cmd_pricing_analysis(args):
             log(f"  ⚠️ {label or endpoint}: {r.get('error', {}).get('message', 'failed')}")
         return r
 
-    # Step 0.5: Category Resolution
-    if not category_path and keyword:
-        log("Step 0: Resolving category...")
-        cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
-        results["categories"] = cat_result
-        cat_data = cat_result.get("data", [])
-        if cat_data:
-            category_path = cat_data[0].get("categoryPath")
-            log(f"  → Locked: {' > '.join(category_path)}")
-    results["meta"]["resolved_category"] = category_path
-
     # Step 1: Current Price Snapshot
     log("Step 1/8: Current price snapshot...")
     results["my_product"] = safe_call("realtime/product", {"asin": my_asin, "marketplace": "US"}, f"realtime {my_asin}")
+    my_data = results["my_product"].get("data", {}) or {}
+    if not my_data.get("title"):
+        log(f"\n❌ ASIN '{my_asin}' not found or has no data. Please check the ASIN and try again.")
+        results["error"] = {"code": "ASIN_NOT_FOUND", "message": f"ASIN '{my_asin}' not found or returned empty data"}
+        output(results, args.format)
+        return
     results["meta"]["steps_completed"].append("price_snapshot")
+
+    # Step 1.5: Auto Category Detection
+    if not category_path:
+        # For pricing, we already have realtime data — extract directly first
+        if my_data.get("categoryPath"):
+            category_path = my_data["categoryPath"]
+            results["meta"]["category_source"] = "asin_realtime"
+            log(f"  → Auto-detected category: {' > '.join(category_path)}")
+        elif my_data.get("bestsellersRank"):
+            leaf = my_data["bestsellersRank"][-1].get("category", "")
+            if leaf:
+                log(f"  → Resolving category from BSR leaf: {leaf}")
+                cat_result = safe_call("categories", {"categoryKeyword": leaf}, "categories")
+                results["categories"] = cat_result
+                cat_data = cat_result.get("data", [])
+                if cat_data:
+                    category_path = cat_data[0].get("categoryPath")
+                    results["meta"]["category_source"] = "asin_bsr"
+                    log(f"  → Auto-detected category: {' > '.join(category_path)}")
+        # Fallback to keyword
+        if not category_path and keyword:
+            category_path, category_source = _resolve_category(safe_call, log, keyword=keyword, results=results)
+            results["meta"]["category_source"] = category_source
+    results["meta"]["resolved_category"] = category_path
 
     # Step 2: Price Band Intelligence
     log("Step 2/8: Price band intelligence...")
@@ -1110,17 +1220,18 @@ def cmd_pricing_analysis(args):
     my_rc = results["my_product"].get("data", {}).get("ratingCount", 0)
     if my_rc and my_rc >= 50:
         review_results["my_asin"] = safe_call("reviews/analysis", {
-            "asins": [my_asin], "mode": "asin", "labelType": "painPoints", "period": "6m"
+            "asins": [my_asin], "mode": "asin", "period": "6m"
         }, f"reviews {my_asin}")
     if comp_asins:
         review_results["top_comp"] = safe_call("reviews/analysis", {
-            "asins": [comp_asins[0]], "mode": "asin", "labelType": "painPoints", "period": "6m"
+            "asins": [comp_asins[0]], "mode": "asin", "period": "6m"
         }, f"reviews {comp_asins[0]}")
     if not review_results and category_path:
+        r = safe_call("reviews/analysis", {
+            "categoryPath": category_path, "mode": "category", "period": "6m"
+        }, "reviews category")
         for lt in ["painPoints", "buyingFactors"]:
-            review_results[lt] = safe_call("reviews/analysis", {
-                "categoryPath": category_path, "mode": "category", "labelType": lt, "period": "6m"
-            }, f"reviews cat {lt}")
+            review_results[lt] = _filter_review_insights(r, lt)
     results["reviews"] = review_results
     results["meta"]["steps_completed"].append("review_context")
 
@@ -1157,9 +1268,6 @@ def cmd_daily_radar(args):
     if not asins_str:
         print("ERROR: --asins is required (comma-separated ASINs to track).", file=sys.stderr)
         sys.exit(1)
-    if not keyword and not category:
-        print("ERROR: --keyword or --category is required.", file=sys.stderr)
-        sys.exit(1)
 
     tracked_asins = [a.strip() for a in asins_str.split(",") if a.strip()]
     category_path = parse_category(category) if category else None
@@ -1175,14 +1283,10 @@ def cmd_daily_radar(args):
         return r
 
     # Step 0.5: Category Resolution
-    if not category_path and keyword:
-        log("Step 0: Resolving category...")
-        cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
-        results["categories"] = cat_result
-        cat_data = cat_result.get("data", [])
-        if cat_data:
-            category_path = cat_data[0].get("categoryPath")
-            log(f"  → Locked: {' > '.join(category_path)}")
+    if not category_path:
+        category_path, category_source = _resolve_category(
+            safe_call, log, keyword=keyword, asin=tracked_asins[0] if tracked_asins else None, results=results)
+        results["meta"]["category_source"] = category_source
     results["meta"]["resolved_category"] = category_path
 
     # Step 1: Realtime Snapshot for All Tracked ASINs
@@ -1292,10 +1396,9 @@ def cmd_daily_radar(args):
             r = safe_call("reviews/analysis", {
                 "asins": [review_asin],
                 "mode": "asin",
-                "labelType": "painPoints",
                 "period": "6m",
             }, f"reviews {review_asin}")
-            review_results["painPoints"] = r
+            review_results["painPoints"] = _filter_review_insights(r, "painPoints")
             break
     
     if not review_results:
@@ -1324,9 +1427,6 @@ def cmd_listing_audit(args):
     if not my_asin:
         print("ERROR: --my-asin is required.", file=sys.stderr)
         sys.exit(1)
-    if not keyword and not category:
-        print("ERROR: --keyword or --category is required.", file=sys.stderr)
-        sys.exit(1)
 
     category_path = parse_category(category) if category else None
     results = {"meta": {"my_asin": my_asin, "keyword": keyword, "category": category, "steps_completed": []}}
@@ -1341,14 +1441,10 @@ def cmd_listing_audit(args):
         return r
 
     # Step 0.5: Category Resolution
-    if not category_path and keyword:
-        log("Step 0: Resolving category...")
-        cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
-        results["categories"] = cat_result
-        cat_data = cat_result.get("data", [])
-        if cat_data:
-            category_path = cat_data[0].get("categoryPath")
-            log(f"  → Locked: {' > '.join(category_path)}")
+    if not category_path:
+        category_path, category_source = _resolve_category(
+            safe_call, log, keyword=keyword, asin=my_asin, results=results)
+        results["meta"]["category_source"] = category_source
     results["meta"]["resolved_category"] = category_path
 
     # Step 1: Audit Target
@@ -1451,21 +1547,22 @@ def cmd_listing_audit(args):
     if target_rc and target_rc >= 50:
         log(f"  → reviews/analysis ASIN mode: {my_asin}")
         review_results["my_asin"] = safe_call("reviews/analysis", {
-            "asins": [my_asin], "mode": "asin", "labelType": "painPoints", "period": "6m"
+            "asins": [my_asin], "mode": "asin", "period": "6m"
         }, f"reviews {my_asin}")
     if leader_asins:
         top_leader = leader_asins[0]
         log(f"  → reviews/analysis ASIN mode: {top_leader}")
         review_results["top_leader"] = safe_call("reviews/analysis", {
-            "asins": [top_leader], "mode": "asin", "labelType": "painPoints", "period": "6m"
+            "asins": [top_leader], "mode": "asin", "period": "6m"
         }, f"reviews {top_leader}")
     # Category fallback
     if not review_results and category_path:
         log("  → Falling back to category mode...")
+        r = safe_call("reviews/analysis", {
+            "categoryPath": category_path, "mode": "category", "period": "6m"
+        }, "reviews category")
         for lt in ["painPoints", "buyingFactors", "improvements"]:
-            review_results[lt] = safe_call("reviews/analysis", {
-                "categoryPath": category_path, "mode": "category", "labelType": lt, "period": "6m"
-            }, f"reviews category {lt}")
+            review_results[lt] = _filter_review_insights(r, lt)
     results["reviews"] = review_results
     results["meta"]["steps_completed"].append("review_intelligence")
 
@@ -1538,14 +1635,9 @@ def cmd_opportunity_scan(args):
         return r
 
     # Category Resolution
-    if not category_path and keyword:
-        log("Step 0: Resolving category...")
-        cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
-        results["categories"] = cat_result
-        cat_data = cat_result.get("data", [])
-        if cat_data:
-            category_path = cat_data[0].get("categoryPath")
-            log(f"  → Locked: {' > '.join(category_path)}")
+    if not category_path:
+        category_path, category_source = _resolve_category(safe_call, log, keyword=keyword, results=results)
+        results["meta"]["category_source"] = category_source
     results["meta"]["resolved_category"] = category_path
 
     # Step 1: Product Scan (mode-based + custom filters)
@@ -1684,23 +1776,22 @@ def cmd_opportunity_scan(args):
     log("Step 6/6: Consumer insights...")
     review_results = {}
     if category_path:
-        for lt in ["painPoints", "buyingFactors", "improvements"]:
-            log(f"  → category mode: {lt}")
-            r = safe_call("reviews/analysis", {
-                "categoryPath": category_path, "mode": "category", "labelType": lt, "period": "6m"
-            }, f"reviews {lt}")
-            if r.get("data") and r.get("data", {}).get("consumerInsights"):
-                review_results[lt] = r
-            else:
-                break
+        log("  → reviews/analysis category mode")
+        r = safe_call("reviews/analysis", {
+            "categoryPath": category_path, "mode": "category", "period": "6m"
+        }, "reviews category")
+        if r.get("data") and r.get("data", {}).get("consumerInsights"):
+            for lt in ["painPoints", "buyingFactors", "improvements"]:
+                review_results[lt] = _filter_review_insights(r, lt)
     if not review_results:
         log("  → Falling back to ASIN mode...")
         review_asins = [a for a in top_asins[:3]]
-        for lt in ["painPoints", "buyingFactors", "improvements"]:
+        if review_asins:
             r = safe_call("reviews/analysis", {
-                "asins": review_asins, "mode": "asin", "labelType": lt, "period": "6m"
-            }, f"reviews ASIN {lt}")
-            review_results[lt] = r
+                "asins": review_asins, "mode": "asin", "period": "6m"
+            }, "reviews ASIN")
+            for lt in ["painPoints", "buyingFactors", "improvements"]:
+                review_results[lt] = _filter_review_insights(r, lt)
     results["reviews"] = review_results
     results["meta"]["review_mode"] = "category" if category_path and review_results.get("painPoints", {}).get("data", {}).get("consumerInsights") else "asin"
     results["meta"]["steps_completed"].append("consumer_insights")
@@ -1743,13 +1834,9 @@ def cmd_review_deepdive(args):
 
     # Category Resolution
     if not category_path:
-        if keyword:
-            log("Step 0: Resolving category...")
-            cat_result = safe_call("categories", {"categoryKeyword": keyword}, "categories")
-            results["categories"] = cat_result
-            cat_data = cat_result.get("data", [])
-            if cat_data:
-                category_path = cat_data[0].get("categoryPath")
+        category_path, category_source = _resolve_category(
+            safe_call, log, keyword=keyword, asin=target_asin, results=results)
+        results["meta"]["category_source"] = category_source
     results["meta"]["resolved_category"] = category_path
 
     # Step 1: Target Identification
@@ -1775,26 +1862,25 @@ def cmd_review_deepdive(args):
     log("Step 2/5: Full review analysis (11 dimensions)...")
     label_types = ["painPoints", "positives", "buyingFactors", "improvements", "userProfiles",
                    "scenarios", "issues", "keywords", "usageTimes", "usageLocations", "behaviors"]
-    
+
     review_results = {}
-    # Target ASIN reviews
+    # Target ASIN reviews (single call, split client-side)
     if target_asin:
+        log(f"  → {target_asin}: all dimensions")
+        r = safe_call("reviews/analysis", {
+            "asins": [target_asin], "mode": "asin", "period": "6m"
+        }, "reviews target")
         for lt in label_types:
-            log(f"  → {target_asin}: {lt}")
-            r = safe_call("reviews/analysis", {
-                "asins": [target_asin], "mode": "asin", "labelType": lt, "period": "6m"
-            }, f"reviews {lt}")
-            review_results[f"target_{lt}"] = r
-    
-    # Competitor comparison (top 2)
+            review_results[f"target_{lt}"] = _filter_review_insights(r, lt)
+
+    # Competitor comparison (top 2, single call each)
     for comp_asin in comp_asins[:2]:
-        log(f"  → Competitor {comp_asin}: painPoints + positives")
-        review_results[f"comp_{comp_asin}_painPoints"] = safe_call("reviews/analysis", {
-            "asins": [comp_asin], "mode": "asin", "labelType": "painPoints", "period": "6m"
+        log(f"  → Competitor {comp_asin}: all dimensions")
+        r = safe_call("reviews/analysis", {
+            "asins": [comp_asin], "mode": "asin", "period": "6m"
         }, f"reviews comp {comp_asin}")
-        review_results[f"comp_{comp_asin}_positives"] = safe_call("reviews/analysis", {
-            "asins": [comp_asin], "mode": "asin", "labelType": "positives", "period": "6m"
-        }, f"reviews comp+ {comp_asin}")
+        review_results[f"comp_{comp_asin}_painPoints"] = _filter_review_insights(r, "painPoints")
+        review_results[f"comp_{comp_asin}_positives"] = _filter_review_insights(r, "positives")
     
     results["reviews"] = review_results
     results["meta"]["steps_completed"].append("review_analysis")
@@ -1960,12 +2046,19 @@ def cmd_analyze(args):
         print("ERROR: --asin, --asins, or --category is required.", file=sys.stderr)
         sys.exit(1)
 
-    if args.label_type:
-        params["labelType"] = args.label_type
     if args.period:
         params["period"] = args.period
 
     result = api_call("reviews/analysis", params)
+
+    # Client-side filtering by label type (v2 API returns all dimensions in one call)
+    if args.label_type and result.get("data") and result["data"].get("consumerInsights"):
+        requested = [t.strip() for t in args.label_type.split(",")]
+        result["data"]["consumerInsights"] = [
+            i for i in result["data"]["consumerInsights"]
+            if i.get("labelType") in requested
+        ]
+
     output(result, args.format)
 
 
@@ -2246,7 +2339,12 @@ Examples:
     p_check = sub.add_parser("check", help="Fetch latest OpenAPI spec to verify available endpoints", allow_abbrev=False)
     p_check.set_defaults(func=cmd_check)
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+    if unknown:
+        cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+        print(f"ERROR: Unrecognized argument(s): {' '.join(unknown)}", file=sys.stderr)
+        print(f"Run 'apiclaw.py {cmd} --help' to see valid options.", file=sys.stderr)
+        sys.exit(1)
     args.func(args)
 
 
