@@ -22,8 +22,8 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 Give me your ASIN(s). I'll tell you whether to raise, hold, or lower — with data.
 
 ## Files
-- **Script**: `scripts/apiclaw.py` (execute, don't read) — run `--help` for params
-- **Reference**: `references/reference.md` (field names & response structure)
+- **Script**: `{skill_base_dir}/scripts/apiclaw.py` (execute, don't read) — run `--help` for params
+- **Reference**: `{skill_base_dir}/references/reference.md` (field names & response structure)
 
 ## Credential
 Required: `APICLAW_API_KEY`. Get free key at [apiclaw.io/api-keys](https://apiclaw.io/en/api-keys)
@@ -67,14 +67,65 @@ Highest ratio = best entry point (strong demand + low review barriers).
 3 scenarios: Conservative (current price), Moderate (±$1-2), Aggressive (±$3-5).
 Per scenario: Revenue = Price × Est. Sales − FBA Fee − Referral Fee (15%) − COGS = Net Profit & Margin.
 
+### Profit Margin Interpretation
+| Net Margin | Signal | Interpretation |
+|------------|--------|---------------|
+| >30% | 🟢 Healthy | Strong margin, room for ad spend and promotions 📊 |
+| 15-30% | 🟡 Acceptable | Viable but monitor costs closely 🔍 |
+| 5-15% | 🟠 Thin | One price war or cost increase away from loss 🔍 |
+| <5% | 🔴 Unsustainable | Must raise price, cut costs, or exit 💡 |
+
+### Price Position Analysis
+- **Price < opportunity band min**: Underpriced — likely leaving money on the table if rating ≥ category avg 🔍
+- **Price in opportunity band**: Optimal zone — hold unless competitors shift 🔍
+- **Price in hottest band**: Maximum volume zone — high competition, margin pressure likely 🔍
+- **Price > hottest band max**: Premium positioning — only viable with strong brand/reviews 🔍
+- **DB price ≠ Realtime price** (>5% diff): Likely running a promotion or coupon — flag as temporary 📊
+
 ## Output
-Respond in user's language. Tag every conclusion: 📊 Data-backed / 🔍 Inferred / 💡 Directional.
+Respond in user's language.
 
 **Per ASIN**: Price Signal (RAISE/HOLD/LOWER) → Current Position in Category → Price Band Heatmap (with Sales/Competition Ratio) → Competitor Price Map (top 10 in leaf category) → 30-Day Trend → Profit Simulation (3 scenarios) → BuyBox Analysis → Recommended Price.
 
 **Batch summary** (if multiple ASINs): Overview table (ASIN | Product | Category | Current Price | Signal | Recommended) → Per-ASIN detail.
 
-End with: Data Provenance → API Usage. Begin with disclaimer. Flag DB vs Realtime discrepancies as likely promotions.
+End with: Data Provenance → API Usage. Flag DB vs Realtime discrepancies as likely promotions.
+
+### Language (required)
+
+Output language MUST match the user's input language. If the user asks in Chinese, the entire report is in Chinese. If in English, output in English. Exception: API field names (e.g. `monthlySalesFloor`, `categoryPath`), endpoint names, technical terms (e.g. ASIN, BSR, CR10, FBA, credits) remain in English.
+
+### Disclaimer (required, at the top of every report)
+
+> Data is based on APIClaw API sampling as of [date]. Monthly sales (`monthlySalesFloor`) are lower-bound estimates. This analysis is for reference only and should not be the sole basis for business decisions. Validate with additional sources before acting.
+
+### Confidence Labels (required, tag EVERY conclusion)
+
+- 📊 **Data-backed** — direct API data (e.g. "current price $12.99 📊")
+- 🔍 **Inferred** — logical reasoning from data (e.g. "price is below opportunity band 🔍")
+- 💡 **Directional** — suggestions, predictions, strategy (e.g. "consider raising to $14.99 💡")
+
+Rules: Strategy recommendations and price signals (RAISE/HOLD/LOWER) are NEVER 📊. User criteria override AI judgment.
+
+### Data Provenance (required)
+
+Include a table at the end of every report:
+
+| Data | Endpoint | Key Params | Notes |
+|------|----------|------------|-------|
+| (e.g. Market Overview) | `markets/search` | categoryPath, topN=10 | 📊 Top N sampling, sales are lower-bound |
+| ... | ... | ... | ... |
+
+Extract endpoint and params from `_query` in JSON output. Add notes: sampling method, T+1 delay, realtime vs DB, minimum review threshold, etc.
+
+### API Usage (required)
+
+| Endpoint | Calls | Credits |
+|----------|-------|---------|
+| (each endpoint used) | N | N |
+| **Total** | **N** | **N** |
+
+Extract from `meta.creditsConsumed` per response. End with `Credits remaining: N`.
 
 ## API Budget
 - Single ASIN: ~20-25 credits

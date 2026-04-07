@@ -142,10 +142,11 @@ Request params: `keyword`, `brand`, `asin`, `categoryPath`, `sortBy`, `pageSize`
 - `mode`: `"asin"` or `"category"`
 - `asins`: List<String> (when mode=asin)
 - `categoryPath`: String (when mode=category)
-- `labelType`: filter to specific dimensions. **⚠️ Only ONE value per call — do NOT comma-separate multiple types.** Make separate calls for each labelType needed.
 - `period`: e.g. `"1m"` / `"3m"` / `"6m"` / `"1y"` / `"2y"`
 
-**labelType values (one per call):** `scenarios`, `issues`, `positives`, `improvements`, `buyingFactors`, `painPoints`, `keywords`, `userProfiles`, `usageTimes`, `usageLocations`, `behaviors`
+⚠️ `labelType` is **not** an API request parameter. The API returns all 11 dimensions in a single call. Filter by `labelType` client-side from the `consumerInsights` array.
+
+**labelType values (in response):** `scenarios`, `issues`, `positives`, `improvements`, `buyingFactors`, `painPoints`, `keywords`, `userProfiles`, `usageTimes`, `usageLocations`, `behaviors`
 
 **Response:**
 | Field | Type | Used For |
@@ -211,21 +212,34 @@ Request params: `keyword`, `brand`, `asin`, `categoryPath`, `sortBy`, `pageSize`
 ## 11. products/history
 
 **Request:**
-- `asins`: List<String> (required)
+- `asin`: String (required) — Single ASIN (one per call, NOT an array)
 - `startDate`: String "YYYY-MM-DD" (required)
 - `endDate`: String "YYYY-MM-DD" (required)
-⚠️ Does NOT accept `dateRange` — must use startDate + endDate
+- `marketplace`: String (optional, default "US")
+⚠️ `asin` is a **single string** — NOT an array. For multiple ASINs, make separate calls.
+⚠️ Does NOT support `page`/`pageSize` — returns full date range in one response.
+⚠️ Does NOT accept `dateRange` — must use startDate + endDate.
 
-**Response (array of daily snapshots):**
+**Response (single time series object, NOT an array of snapshots):**
 | Field | Type | Used For |
 |-------|------|----------|
-| `asin` | string | Product ID |
-| `price` | float | Price on that day |
-| `bsr` | int | BSR on that day |
-| `subBsr` | int | Sub-category BSR |
-| `recentSales` | int | Recent sales count |
-| `updatedAt` | string | Unix timestamp (string) |
-| `createdAt` | string | Unix timestamp (string) |
+| `asin` | string | Product ASIN |
+| `timestamps` | List\<string\> | Dates (YYYY-MM-DD) |
+| `price` | List\<float\> | Price on each date |
+| `bsr` | List\<int\> | BSR on each date |
+| `subBsr` | List\<int\> | Sub-category BSR |
+| `monthlySalesFloor` | List\<int\> | Monthly sales lower bound |
+| `rating` | List\<float\> | Rating on each date |
+| `ratingCount` | List\<int\> | Review count on each date |
+| `sellerCount` | List\<int\> | Seller count |
+| `title` | List\<ChangeLog\> | Title changes `{date, value}` |
+| `imageUrl` | List\<ChangeLog\> | Main image changes `{date, value}` |
+| `bestSeller` | List\<ChangeLog\> | Best Seller badge `{date, value}` |
+| `amazonChoice` | List\<ChangeLog\> | Amazon's Choice badge `{date, value}` |
+| `newRelease` | List\<ChangeLog\> | New Release badge `{date, value}` |
+| `aPlus` | List\<ChangeLog\> | A+ content status `{date, value}` |
+| `inventoryStatus` | List\<ChangeLog\> | Stock status `{date, value}` |
+| `currency` | string | e.g. "USD" |
 
 ---
 

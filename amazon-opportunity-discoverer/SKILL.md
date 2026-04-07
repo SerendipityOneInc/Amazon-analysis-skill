@@ -20,8 +20,8 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 Tell me your budget and experience. I find opportunities, score them, and rank.
 
 ## Files
-- **Script**: `scripts/apiclaw.py` (execute, don't read) — run `--help` for params
-- **Reference**: `references/reference.md` (field names & response structure)
+- **Script**: `{skill_base_dir}/scripts/apiclaw.py` (execute, don't read) — run `--help` for params
+- **Reference**: `{skill_base_dir}/references/reference.md` (field names & response structure)
 
 ## Credential
 Required: `APICLAW_API_KEY`. Get free key at [apiclaw.io/api-keys](https://apiclaw.io/en/api-keys)
@@ -32,7 +32,7 @@ Required: `APICLAW_API_KEY`. Get free key at [apiclaw.io/api-keys](https://apicl
 - **Optional**: fulfillment preference (FBA/FBM), specific filter criteria
 
 ## API Pitfalls (see apiclaw skill for full list)
-- **MUST lock categoryPath first** via `categories` — keyword-only queries contaminate results
+- categoryPath is auto-resolved via `categories`, with fallback to top search result. If `category_source` is `inferred_from_search`, confirm with user — keyword-only queries contaminate results
 - All keyword-based endpoints MUST include `--category` when locked
 - Revenue = `sampleAvgMonthlyRevenue` directly. Sales = `monthlySalesFloor` (lower bound)
 - `reviews/analysis` needs 50+ reviews
@@ -79,15 +79,51 @@ Scan with `market --keyword "{broad}" --topn 10`, rank subcategories by: newSkuR
 
 ## Composite Command
 ```bash
-python3 scripts/apiclaw.py opportunity-scan --keyword "{kw}" --category "{path}" --modes "beginner,emerging,underserved"
+python3 {skill_base_dir}/scripts/apiclaw.py opportunity-scan --keyword "{kw}" --category "{path}" --modes "beginner,emerging,underserved"
 ```
 Or with custom filters: `--sales-min 300 --ratings-max 100 --price-min 15 --price-max 35`
 
 ## Output
-Respond in user's language. Tag every conclusion: 📊 Data-backed / 🔍 Inferred / 💡 Directional.
+Respond in user's language.
 
 Sections: Scan Summary → Top 10 Opportunities Table → Detailed Analysis (Top 3) → Category Heatmap → Risk Alerts → Next Steps (S: buy sample, A: deep-dive, B: watch) → Data Provenance → API Usage
 
-Begin with disclaimer. If user provides COGS, calculate profit. User criteria override: ANY fail → CAUTION/AVOID.
+If user provides COGS, calculate profit. User criteria override: ANY fail → CAUTION/AVOID.
+
+### Language (required)
+
+Output language MUST match the user's input language. If the user asks in Chinese, the entire report is in Chinese. If in English, output in English. Exception: API field names (e.g. `monthlySalesFloor`, `categoryPath`), endpoint names, technical terms (e.g. ASIN, BSR, CR10, FBA, credits) remain in English.
+
+### Disclaimer (required, at the top of every report)
+
+> Data is based on APIClaw API sampling as of [date]. Monthly sales (`monthlySalesFloor`) are lower-bound estimates. This analysis is for reference only and should not be the sole basis for business decisions. Validate with additional sources before acting.
+
+### Confidence Labels (required, tag EVERY conclusion)
+
+- 📊 **Data-backed** — direct API data (e.g. "CR10 = 54.8% 📊")
+- 🔍 **Inferred** — logical reasoning from data (e.g. "brand concentration is moderate 🔍")
+- 💡 **Directional** — suggestions, predictions, strategy (e.g. "consider entering $10-15 band 💡")
+
+Rules: Strategy recommendations are NEVER 📊. Anomalies (>200% growth) are always 💡. User criteria override AI judgment.
+
+### Data Provenance (required)
+
+Include a table at the end of every report:
+
+| Data | Endpoint | Key Params | Notes |
+|------|----------|------------|-------|
+| (e.g. Market Overview) | `markets/search` | categoryPath, topN=10 | 📊 Top N sampling, sales are lower-bound |
+| ... | ... | ... | ... |
+
+Extract endpoint and params from `_query` in JSON output. Add notes: sampling method, T+1 delay, realtime vs DB, minimum review threshold, etc.
+
+### API Usage (required)
+
+| Endpoint | Calls | Credits |
+|----------|-------|---------|
+| (each endpoint used) | N | N |
+| **Total** | **N** | **N** |
+
+Extract from `meta.creditsConsumed` per response. End with `Credits remaining: N`.
 
 ## API Budget: ~50-60 credits
