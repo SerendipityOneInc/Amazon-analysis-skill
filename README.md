@@ -33,6 +33,11 @@
 
 [APIClaw](https://apiclaw.io) is the data infrastructure built for agents. Not a scraping API. Not a human dashboard. A purpose-built data layer that gives your AI agents direct access to Amazon commerce signals — 200M+ indexed products, 2+ years of history, and 1B+ reviews pre-processed into structured insights. Clean JSON, real-time, agent-ready.
 
+
+https://github.com/user-attachments/assets/305a161b-7a53-49b8-afdc-4469a4fbf361
+
+
+
 ## Skills Overview
 
 This repo contains **10 agent skills** organized in two tiers:
