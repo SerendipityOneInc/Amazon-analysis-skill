@@ -1,11 +1,12 @@
 ---
-name: APIClaw — Amazon Commerce Data, 11 Endpoints
-version: 1.1.1
+name: APIClaw — Amazon Commerce Data, 12 Endpoints
+version: 1.1.2
 description: >
-  General overview, 11 API endpoints.
+  General overview, 12 API endpoints.
   AI-powered commerce data infrastructure with 200M+ Amazon products.
   Endpoints: category browsing, market metrics, product search,
   competitor lookup, realtime ASIN detail, AI review analysis,
+  live raw reviews (with local Map/Reduce toolkit fallback),
   price band overview/detail, brand overview/detail, and product history.
   Use when user asks: what APIClaw can do, available API endpoints,
   how to get started, API capabilities overview, credit usage, or
@@ -22,7 +23,7 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 
 # APIClaw — Commerce Data Infrastructure for AI Agents
 
-200M+ Amazon products. 11 endpoints. One API key.
+200M+ Amazon products. 12 endpoints. One API key.
 
 ## Quick Start
 1. Get key: [apiclaw.io/api-keys](https://apiclaw.io/en/api-keys) (1,000 free credits)
@@ -37,11 +38,14 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 3. **Revenue** = `sampleAvgMonthlyRevenue` directly. **NEVER** calculate avgPrice × totalSales (overestimates 30-70%)
 4. **Sales** = `monthlySalesFloor` (lower bound). Fallback: 300,000 / BSR^0.65, tag as 🔍
 5. **Use API fields directly**: `sampleOpportunityIndex`, `sampleTop10BrandSalesRate` — never reinvent
-6. **reviews/analysis** needs 50+ reviews; fallback to realtime ratingBreakdown
+6. **reviews/analysis** needs 50+ reviews. Fallback chain when sample is insufficient:
+   1. Lightweight: `realtime/product` → `ratingBreakdown` (star distribution only, no themes)
+   2. Full 11-dim insights: `realtime/reviews` (raw text, up to 100) + local Map/Reduce via the
+      Local Review Toolkit below — see "Local Review Toolkit" section
 7. **Aggregation endpoints** (price-band, brand) without categoryPath produce severely distorted data
 8. **Price-band and brand endpoints only accept `keyword`** (not categoryPath) — cross-validate returned products
 
-## 11 Endpoints
+## 12 Endpoints
 
 | # | Endpoint | Purpose | Key Output |
 |---|----------|---------|------------|
@@ -51,11 +55,12 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 | 4 | `products/competitors` | Competitor discovery | same fields as products/search |
 | 5 | `realtime/product` | Live ASIN detail | rating, features, bestsellersRank[], buyboxWinner.price, variants |
 | 6 | `reviews/analysis` | AI review insights (11 dims) | sentimentDistribution, consumerInsights, topKeywords |
-| 7 | `products/price-band-overview` | Price band summary | hottestBand, bestOpportunityBand, sampleOpportunityIndex |
-| 8 | `products/price-band-detail` | Full 5-band distribution | priceBands[] with sales, brands, ratings per band |
-| 9 | `products/brand-overview` | Brand concentration | sampleTop10BrandSalesRate (CR10), sampleBrandCount |
-| 10 | `products/brand-detail` | Per-brand breakdown | brands[] with sales, revenue, sampleProducts |
-| 11 | `products/history` | Time series (single ASIN per call) | timestamps[], price[], bsr[], monthlySalesFloor[], rating[], ratingCount[], sellerCount[], title/imageUrl/bestSeller/newRelease/aPlus/inventoryStatus changelogs |
+| 7 | `realtime/reviews` | Live raw review text (cursor paginated, max 100) | reviews[], nextCursor — feeds Local Review Toolkit |
+| 8 | `products/price-band-overview` | Price band summary | hottestBand, bestOpportunityBand, sampleOpportunityIndex |
+| 9 | `products/price-band-detail` | Full 5-band distribution | priceBands[] with sales, brands, ratings per band |
+| 10 | `products/brand-overview` | Brand concentration | sampleTop10BrandSalesRate (CR10), sampleBrandCount |
+| 11 | `products/brand-detail` | Per-brand breakdown | brands[] with sales, revenue, sampleProducts |
+| 12 | `products/history` | Time series (single ASIN per call) | timestamps[], price[], bsr[], monthlySalesFloor[], rating[], ratingCount[], sellerCount[], title/imageUrl/bestSeller/newRelease/aPlus/inventoryStatus changelogs |
 
 ## Known Quirks
 - `topN`, `listingAge`, `newProductPeriod` are **strings** (`"10"` not `10`)
@@ -69,19 +74,59 @@ metadata: {"openclaw": {"requires": {"env": ["APICLAW_API_KEY"]}, "primaryEnv": 
 - Rate limit: 100 req/min, 10 req/sec burst
 - `categories` uses `categoryKeyword` (not `keyword`) and `parentCategoryPath` (not `parentCategoryName`)
 - `reviews/analysis`: `mode` required ("asin"/"category"), use `asins` (plural array) not `asin`
+- `realtime/reviews`: returns 10 reviews/page fixed (no `pageSize` param); 1 credit/page; cursor-paginated; hard cap = 100 reviews (10 pages); supports `marketplace` US/UK only
+
+## Local Review Toolkit
+
+When `/reviews/analysis` lacks aggregation (ASIN has <50 reviews or no daily snapshot),
+fall back to live raw reviews + your own LLM. The toolkit does NOT call any external
+LLM — you (the calling skill's LLM) perform the Map/Reduce steps.
+
+**Workflow:**
+
+```bash
+# 1. Fetch raw reviews (up to 100, cursor-paginated, ~60s, 10 credits at full)
+apiclaw.py reviews-raw --asin B0XXXXXXXX [--marketplace US] [--max-pages 10]
+
+# 2. For EACH review, render the per-review Map prompt
+apiclaw.py review-tag-prompt --review '<single review JSON>' \
+    [--product-title "..."] [--product-category "..."]
+# → Your LLM produces a JSON object with sentiment + 11 dimension arrays
+#   (mentioned_scenarios, mentioned_issues, mentioned_positives, mentioned_improvements,
+#    mentioned_buying_factors, mentioned_pain_points, user_profiles, mentioned_usage_times,
+#    mentioned_usage_locations, mentioned_behaviors, keywords)
+# Suggested map parallelism: ~20 concurrent if your LLM supports it
+
+# 3. Collect candidate phrases per dimension. For EACH dimension render the Reduce prompt
+apiclaw.py review-reduce-prompt --label-type positives \
+    --candidates '["comfortable","comfy","very comfortable",...]'
+# → Your LLM produces {clusters: [{canonical, members}, ...]}
+# Suggested chunk size for `keywords` dim when >150 candidates: 150 per call
+
+# 4. Aggregate into reviews/analysis-compatible consumerInsights
+apiclaw.py review-aggregate --reviews raw.json --tagged tags.json --clusters clusters.json
+# → Output shape matches /reviews/analysis: reviewCount, avgRating,
+#   sentimentDistribution, consumerInsights[], topKeywords[]
+```
+
+**When to use the toolkit instead of `reviews/analysis`:**
+- ASIN has fewer than 50 reviews
+- `reviews/analysis` returns sparse `consumerInsights` (missing dimensions)
+- Need the freshest possible data (Spider scrape vs. T+1 BigQuery snapshot)
+- Need to analyze a brand-new product that has no daily snapshot yet
 
 ## Field Differences Across Endpoints
 
-| Data | markets | products/competitors | realtime | reviews | price-band | brand | history |
-|------|---------|---------------------|----------|---------|------------|-------|---------|
-| Sales | sampleAvgMonthlySales | monthlySalesFloor | ❌ | ❌ | sampleSalesRate | sampleGroupMonthlySales | monthlySalesFloor[] |
-| Price | sampleAvgPrice | price | buyboxWinner.price | ❌ | bandMin/MaxPrice | sampleAvgPrice | price[] |
-| BSR | sampleAvgBsr | bsr (int) | bestsellersRank[] | ❌ | ❌ | ❌ | bsr[] |
-| Rating | sampleAvgRating | rating | rating | avgRating | sampleAvgRating | sampleAvgRating | rating[] |
-| Reviews | sampleAvgReviewCount | ratingCount | ratingCount | reviewCount | ❌ | sampleAvgRatingCount | ratingCount[] |
-| Insights | ❌ | ❌ | ❌ | ✅ consumerInsights | ❌ | ❌ | ❌ |
-| Concentration | topSalesRate | ❌ | ❌ | ❌ | sampleTop3BrandSalesRate | CR10 | ❌ |
-| Opportunity | ❌ | ❌ | ❌ | ❌ | sampleOpportunityIndex | ❌ | ❌ |
+| Data | markets | products/competitors | realtime/product | reviews/analysis | realtime/reviews | price-band | brand | history |
+|------|---------|---------------------|----------|---------|---------|------------|-------|---------|
+| Sales | sampleAvgMonthlySales | monthlySalesFloor | ❌ | ❌ | ❌ | sampleSalesRate | sampleGroupMonthlySales | monthlySalesFloor[] |
+| Price | sampleAvgPrice | price | buyboxWinner.price | ❌ | ❌ | bandMin/MaxPrice | sampleAvgPrice | price[] |
+| BSR | sampleAvgBsr | bsr (int) | bestsellersRank[] | ❌ | ❌ | ❌ | ❌ | bsr[] |
+| Rating | sampleAvgRating | rating | rating | avgRating | rating (per review) | sampleAvgRating | sampleAvgRating | rating[] |
+| Reviews | sampleAvgReviewCount | ratingCount | ratingCount | reviewCount | reviews[] (raw text, max 100) | ❌ | sampleAvgRatingCount | ratingCount[] |
+| Insights | ❌ | ❌ | ❌ | ✅ consumerInsights | ❌ (raw only — feeds Local Review Toolkit) | ❌ | ❌ | ❌ |
+| Concentration | topSalesRate | ❌ | ❌ | ❌ | ❌ | sampleTop3BrandSalesRate | CR10 | ❌ |
+| Opportunity | ❌ | ❌ | ❌ | ❌ | ❌ | sampleOpportunityIndex | ❌ | ❌ |
 
 ## Confidence Labels (all skills)
 - 📊 **Data-backed** — direct API data

@@ -161,6 +161,44 @@ Request params: `keyword`, `brand`, `asin`, `categoryPath`, `sortBy`, `pageSize`
 
 ---
 
+## 6b. realtime/reviews
+
+**Request:**
+- `asin`: String (10 chars, required)
+- `marketplace`: String (US/UK only, default US)
+- `cursor`: String (pagination token; omit for first page)
+
+⚠️ Fixed 10 reviews/page; max 10 pages = **100 reviews** hard cap. 1 credit/page. Cursor-based pagination.
+
+**Response:**
+| Field | Type | Used For |
+|-------|------|----------|
+| `asin` | string | Product ID |
+| `reviews` | list | Array of RealtimeReview |
+| `nextCursor` | string\|null | Next page token (null = end) |
+
+**RealtimeReview:** `reviewId`, `title`, `body`, `bodyHtml`, `rating`, `author`, `date` (ISO 8601 UTC), `verifiedPurchase`, `vineProgram`, `helpfulVoteCount`, `unhelpfulVoteCount`, `reviewCountry`, `images`, `link`, `isGlobalReview`
+
+**Use cases:** ASIN <50 reviews (fallback for `/reviews/analysis`), brand-new product without snapshot, freshest possible raw text. Feeds the local Map/Reduce toolkit (`apiclaw.py reviews-raw / review-tag-prompt / review-reduce-prompt / review-aggregate`).
+
+---
+
+## 6c. reviews/search
+
+**Request:**
+- `asin`: String (required)
+- Optional filters: `ratingMin`/`ratingMax` (1-5), `verifiedOnly`, `vineOnly`, `helpfulVoteCountMin`, `dateStart`/`dateEnd` (YYYY-MM-DD)
+- `sortBy`: `recent` (default) / `rating` / `helpfulVoteCount`
+- `sortOrder`: `desc` (default) / `asc`
+- `page`: 1-indexed (default 1)
+- `pageSize`: 1-20 (default 10)
+
+**Response:** Array of `TaggedReview` — same fields as `RealtimeReview` + `tags[{labelType, element}]` (AI tags from offline pipeline).
+
+**Differs from realtime/reviews:** uses BigQuery daily snapshot (T+1 delay) but already has AI tags applied. Prefer `reviews/search` when snapshot exists; prefer `realtime/reviews` for live data or new products.
+
+---
+
 ## 7. products/price-band-overview
 
 **Request:** Same params as products/search (keyword, category, filters)

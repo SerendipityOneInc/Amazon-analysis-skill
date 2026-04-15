@@ -104,6 +104,50 @@ labelType values (in response): `scenarios`, `issues`, `positives`, `improvement
 
 ---
 
+## 6b. realtime/reviews
+
+| Parameter | Type | Required | Note |
+|-----------|------|----------|------|
+| asin | String | **Yes** | Product ASIN (10 chars) |
+| marketplace | String | No | `US`/`UK` only (default: US) |
+| cursor | String | No | Pagination token from previous response's `nextCursor`. Omit for first page. |
+
+⚠️ No `pageSize` parameter — server returns 10 reviews/page fixed. Hard cap = **100 reviews / 10 pages**. Cost = **1 credit/page**.
+
+Response: `asin`, `reviews` (array of RealtimeReview), `nextCursor` (null = no more pages).
+
+RealtimeReview: `reviewId`, `title`, `body`, `bodyHtml`, `rating`, `author`, `date` (ISO 8601), `verifiedPurchase`, `vineProgram`, `helpfulVoteCount`, `unhelpfulVoteCount`, `reviewCountry`, `images`, `link`, `isGlobalReview`
+
+Use cases:
+- ASIN has <50 reviews so `/reviews/analysis` aggregation is empty
+- Brand-new product with no daily snapshot
+- Need fresh raw text for local LLM analysis (Map/Reduce → consumerInsights)
+
+See `apiclaw.py reviews-raw / review-tag-prompt / review-reduce-prompt / review-aggregate` for the local toolkit that consumes this endpoint.
+
+---
+
+## 6c. reviews/search
+
+| Parameter | Type | Required | Note |
+|-----------|------|----------|------|
+| asin | String | **Yes** | Product ASIN |
+| ratingMin / ratingMax | Number | No | 1-5 inclusive |
+| verifiedOnly | Boolean | No | Default false |
+| vineOnly | Boolean | No | Default false |
+| helpfulVoteCountMin | Integer | No | Filter low-engagement reviews |
+| dateStart / dateEnd | Date (YYYY-MM-DD) | No | Inclusive range |
+| sortBy | String | No | `recent` (default) / `rating` / `helpfulVoteCount` |
+| sortOrder | String | No | `desc` (default) / `asc` |
+| page | Integer | No | 1-indexed, default 1 |
+| pageSize | Integer | No | 1-20, default 10 |
+
+Response: array of TaggedReview with AI-generated `tags[{labelType, element}]` derived from the offline analysis pipeline (BigQuery daily snapshot).
+
+TaggedReview vs RealtimeReview: `reviews/search` uses snapshot data with AI tags (T+1 delay); `realtime/reviews` is live raw text (no tags). Use `reviews/search` when daily snapshot exists and you want pre-tagged data; use `realtime/reviews` for fresh data or new products.
+
+---
+
 ## 7. products/price-band-overview
 
 | Parameter | Type | Required | Note |

@@ -1,6 +1,6 @@
 ---
 name: Amazon Opportunity Discoverer — Niche Scanner & Scoring
-version: 1.0.1
+version: 1.0.2
 description: >
   Automated product opportunity scanner for Amazon sellers.
   Scans categories using 14 preset selection strategies, validates candidates with
@@ -35,7 +35,24 @@ Required: `APICLAW_API_KEY`. Get free key at [apiclaw.io/api-keys](https://apicl
 - categoryPath is auto-resolved via `categories`, with fallback to top search result. If `category_source` is `inferred_from_search`, confirm with user — keyword-only queries contaminate results
 - All keyword-based endpoints MUST include `--category` when locked
 - Revenue = `sampleAvgMonthlyRevenue` directly. Sales = `monthlySalesFloor` (lower bound)
-- `reviews/analysis` needs 50+ reviews
+- `reviews/analysis` needs 50+ reviews. Fallback chain when sample is insufficient:
+  1. **Lightweight**: `realtime/product` ratingBreakdown — only star distribution, no themes
+  2. **Full 11-dim insights** — bypass `/reviews/analysis` entirely:
+     a. `apiclaw.py reviews-raw --asin X` → fetch up to 100 raw reviews (10 credits, ~60s)
+     b. For each review: render Map prompt via `apiclaw.py review-tag-prompt --review '<json>'`
+        and have your own LLM produce JSON tags (sentiment + 11 dimensions)
+     c. Collect candidate phrases per dimension; for each dimension render
+        Reduce prompt via `apiclaw.py review-reduce-prompt --label-type X --candidates '[...]'`
+        and have your LLM produce semantic clusters
+     d. `apiclaw.py review-aggregate --reviews R --tagged T --clusters C`
+        → consumerInsights output compatible with `/reviews/analysis`
+  3. **Fallback caveats** (apply to the 4-step chain above — lessons from end-to-end validation):
+     - **Working dir**: `WORK=/tmp/review_<ASIN>_$(date +%s) && mkdir -p $WORK`
+     - **Step b CLI behavior**: `review-tag-prompt` RENDERS the prompt only; YOUR LLM produces the JSON. Render once to learn the schema, then produce tags for all N reviews in one in-context pass (don't call the CLI N times).
+     - **Step c candidate extraction** (Python one-liner):
+       `candidates = {d: sorted({el.strip().lower() for t in tagged for el in (t.get(d) or [])}) for d in DIMS}`
+     - **Small-sample rule (reviewCount<50)**: demote single-mention items 📊→🔍; NEVER attach table-level or section-header 📊 when any row inside is 🔍; suppress "🔴 Critical" verdicts on count=1
+     - **Scope**: fallback replaces ONLY the `/reviews/analysis` aggregation. This skill's primary workflow outputs (opportunity scoring, mode-based selection, ranked candidate list) remain valid — do not re-run them.
 - Deduplicate ASINs across modes — same product appears in multiple scans
 - Each mode has **built-in filters that STACK** with user filters (e.g. beginner: $15-60, sales≥300)
 
@@ -105,6 +122,22 @@ Output language MUST match the user's input language. If the user asks in Chines
 - 💡 **Directional** — suggestions, predictions, strategy (e.g. "consider entering $10-15 band 💡")
 
 Rules: Strategy recommendations are NEVER 📊. Anomalies (>200% growth) are always 💡. User criteria override AI judgment.
+
+**Aggregate-label rule (applies to ALL report output, not just fallback)**: NEVER attach 📊 to ANY element that aggregates or groups underlying content when ANY piece of that content is 🔍 or 💡. "Aggregate/grouping elements" include:
+- Section headers at EVERY level (`#`, `##`, `###`, `####`) — including top-level summary sections like "Overall Score", "Verdict", "Executive Summary"
+- Summary/score lines anywhere in the report (e.g. `## Overall Score — 27/100 · Grade F 📊` is WRONG if any Basis row inside is 🔍)
+- Table **column** headers in comparison tables (e.g. `**Target ASIN** 📊` as a column label is WRONG if any cell in that column contains 🔍)
+- Table row headers or row-aggregation labels (when the row aggregates multiple cells of mixed confidence)
+- Any other visual grouping label — bullet-list group titles, callout box titles, etc.
+
+A group-level 📊 implies the whole block/column/row is data-backed, which smuggles inferred/directional content into the 📊 tier via visual grouping. Either (a) **omit the group-level label entirely** (preferred when content mixes tiers), or (b) use the LOWEST confidence present inside (🔍 if any underlying content is 🔍; 💡 if any is 💡). This is a universal output-quality rule — it applies regardless of which fallback path (if any) was triggered.
+
+**Emoji reservation rule (closely related)**: The three confidence symbols `📊 🔍 💡` are RESERVED for confidence labeling. NEVER use them as decorative prefixes on section headers, table headers, or any aggregate element — even when you also include a correct confidence suffix on the same line. Example:
+- ❌ WRONG: `## 📊 Overall Score — 27/100 · Grade F 🔍` (the leading 📊 reads as a data-backed claim even though the trailing 🔍 is correct)
+- ✅ RIGHT: `## Overall Score — 27/100 · Grade F 🔍` (no decorative emoji, just the proper confidence suffix)
+- ✅ RIGHT: `## 🎯 Overall Score — 27/100 · Grade F 🔍` (use non-reserved decorative icons like 🎯 🧭 📋 📝 📂 🏁 🚨 🏆 🔔 when a visual prefix is desired)
+
+Decorative emoji ≠ confidence label — but from a reader's perspective, a leading `📊/🔍/💡` is indistinguishable from a confidence claim. Reserve these three symbols EXCLUSIVELY for confidence annotation to avoid ambiguity.
 
 ### Data Provenance (required)
 
