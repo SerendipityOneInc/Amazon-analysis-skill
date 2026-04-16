@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **`/openapi/v2/realtime/reviews` endpoint integration** — cursor-paginated raw review fetch (10 reviews/page, max 100 reviews / 10 pages, 1 credit/page, US+UK only). Spider-live, no AI tags.
+- **Local Review Toolkit in `apiclaw.py`** — prompt-as-data fallback path when `/reviews/analysis` lacks aggregation (ASIN <50 reviews or no daily snapshot). New CLI commands:
+  - `reviews-raw` — fetch raw reviews with auto-pagination + early exit
+  - `review-tag-prompt` — render per-review Map prompt for the caller's own LLM
+  - `review-reduce-prompt` — render per-dimension Reduce prompt for the caller's own LLM
+  - `review-aggregate` — combine raw reviews + Map tags + Reduce clusters into `consumerInsights` output compatible with `/reviews/analysis`
+- **Three-layer sync enforcement docs** in `apiclaw/scripts/apiclaw.py` file header (pre-commit hook + `sync-scripts.sh` + CI workflow).
+- **CONTRIBUTING.md** sections on local branch hygiene and shared CLI script sync mechanism.
+
+### Changed
+- All 8 review-using SKILL.md files now document the realtime/reviews fallback chain (each self-contained, no cross-skill references):
+  - Tier A (deep update): `apiclaw`, `amazon-review-intelligence-extractor`, `amazon-analysis`
+  - Tier B (pitfall expansion): `amazon-competitor-intelligence-monitor`, `amazon-daily-market-radar`, `amazon-listing-audit-pro`, `amazon-market-entry-analyzer`, `amazon-opportunity-discoverer`
+- Reference docs updated with `realtime/reviews` and `reviews/search` schemas (`apiclaw/references/{openapi-reference,reference}.md`, `amazon-review-intelligence-extractor/references/reference.md`).
+- All 9 `amazon-*/scripts/apiclaw.py` copies force-resynced to canonical (one-time cleanup of pre-existing drift; future syncs now safe via AUTO-SYNCED marker in file header).
+
 ## [1.2.0] — 2026-04-03
 
 ### Breaking Changes — API V2 Field Renames

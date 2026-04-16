@@ -19,6 +19,36 @@ Thanks for your interest in contributing! We keep things simple.
 6. Push: `git push origin my-feature`
 7. Open a Pull Request
 
+## Local Branch Hygiene
+
+To avoid divergence from `origin/main` (e.g. if your previous branch was
+squash-merged, your local SHA differs from the merged SHA on `main`):
+
+```bash
+# Always start from a fresh main
+git checkout main
+git fetch origin
+git reset --hard origin/main   # safe — discards stale local commits whose
+                               # content has already been merged on origin
+git checkout -b feat/my-thing
+```
+
+## Shared CLI Script — `apiclaw.py`
+
+The canonical script lives at `apiclaw/scripts/apiclaw.py`. Each `amazon-*`
+skill has a synced copy at `<skill>/scripts/apiclaw.py`. **Never edit copies
+directly** — sync is enforced at three layers:
+
+1. **Local pre-commit hook** — auto-syncs copies when canonical is staged.
+   Install once per clone: `bash scripts/install-hooks.sh`
+2. **`scripts/sync-scripts.sh`** — mirrors canonical → copies. Refuses to
+   overwrite copies that differ without an `AUTO-SYNCED` marker.
+3. **CI check** (`.github/workflows/shared-files-distribution.yml`) — every
+   PR touching `scripts/**` or `*scripts/apiclaw.py` runs a strict diff;
+   mismatched copies fail the PR.
+
+See the file header of `apiclaw/scripts/apiclaw.py` for full details.
+
 ## Testing Your Changes
 
 ### For Skill files (SKILL.md, references/)

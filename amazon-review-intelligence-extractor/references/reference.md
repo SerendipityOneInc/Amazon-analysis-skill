@@ -160,6 +160,55 @@ Request params: `keyword`, `brand`, `asin`, `categoryPath`, `sortBy`, `pageSize`
 
 ---
 
+## 6b. realtime/reviews + Local Toolkit (fallback for `/reviews/analysis`)
+
+When `/reviews/analysis` lacks aggregation (ASIN <50 reviews, or no daily snapshot),
+use this endpoint + the local Map/Reduce toolkit to produce a compatible
+`consumerInsights` structure.
+
+**Request:**
+- `asin`: String (10 chars, required)
+- `marketplace`: String (US/UK only, default US)
+- `cursor`: String (omit for first page; use previous response's `nextCursor`)
+
+⚠️ Fixed 10 reviews/page; max 10 pages = **100 reviews** hard cap. 1 credit/page.
+
+**Response:**
+- `asin`, `reviews[]` (RealtimeReview), `nextCursor` (null = end)
+
+**RealtimeReview:** `reviewId`, `title`, `body`, `bodyHtml`, `rating`, `author`, `date` (ISO 8601), `verifiedPurchase`, `vineProgram`, `helpfulVoteCount`, `unhelpfulVoteCount`, `reviewCountry`, `images`, `link`, `isGlobalReview`
+
+### Local Toolkit Workflow
+
+```
+apiclaw.py reviews-raw          → fetch raw reviews (one HTTP call per page, auto-paginates)
+apiclaw.py review-tag-prompt    → render Map prompt for one review (caller's LLM tags it)
+apiclaw.py review-reduce-prompt → render Reduce prompt for one dimension (caller's LLM clusters)
+apiclaw.py review-aggregate     → combine raw + tags + clusters → consumerInsights output
+```
+
+The aggregator output matches `/reviews/analysis` structure exactly:
+`{reviewCount, avgRating, sentimentDistribution, consumerInsights[InsightItem], topKeywords[]}`.
+
+See SKILL.md "Insufficient Data Fallback" section for full step-by-step usage.
+
+---
+
+## 6c. reviews/search
+
+**Request:**
+- `asin`: String (required)
+- Optional filters: `ratingMin`/`ratingMax` (1-5), `verifiedOnly`, `vineOnly`, `helpfulVoteCountMin`, `dateStart`/`dateEnd` (YYYY-MM-DD)
+- `sortBy`: `recent` (default) / `rating` / `helpfulVoteCount`
+- `sortOrder`: `desc` (default) / `asc`
+- `page` / `pageSize`: 1-indexed, pageSize 1-20 default 10
+
+**Response:** Array of `TaggedReview` (RealtimeReview fields + `tags[{labelType, element}]` AI tags from offline pipeline).
+
+Differs from `realtime/reviews`: BigQuery snapshot (T+1 delay) but already AI-tagged.
+
+---
+
 ## 7. products/price-band-overview
 
 **Request:** Same params as products/search (keyword, category, filters)

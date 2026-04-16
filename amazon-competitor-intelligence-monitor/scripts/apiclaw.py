@@ -378,6 +378,315 @@ def parse_category(cat_str: str) -> list:
     return [c.strip() for c in cat_str.split(",")]
 
 
+# ─── Review Analysis: Prompt-as-Data Toolkit ───────────────────────────────
+# Used when /reviews/analysis lacks aggregation (ASIN has <50 reviews or no
+# daily snapshot). This module does NOT call any external LLM — it provides
+# raw data, rendered prompts, and a final aggregator. The calling skill's own
+# LLM performs the Map (per-review tagging) and Reduce (semantic clustering)
+# steps, producing JSON that feeds back into `review-aggregate`.
+#
+# Caller flow:
+#   1. apiclaw.py reviews-raw --asin X          → fetch raw reviews
+#   2. For each review, render via:
+#        apiclaw.py review-tag-prompt --review '<json>'
+#      The caller's LLM produces JSON matching REVIEW_MAP_SCHEMA.
+#   3. Collect per-dimension candidate phrases; for each dimension render:
+#        apiclaw.py review-reduce-prompt --label-type <dim> --candidates '[...]'
+#      The caller's LLM produces JSON matching REVIEW_REDUCE_SCHEMA.
+#   4. apiclaw.py review-aggregate --reviews R --tagged T --clusters C
+#      → emits consumerInsights compatible with /reviews/analysis.
+
+REVIEW_MAP_CONCURRENCY = 20           # suggested map parallelism for caller
+REVIEW_REDUCE_KEYWORDS_CHUNK = 150    # suggested chunk size when keywords dim is large
+REALTIME_REVIEWS_MAX_PAGES = 10       # API hard cap = 100 reviews (10 pages × 10)
+
+DIM_TO_LABELTYPE = {
+    "mentioned_scenarios": "scenarios",
+    "mentioned_issues": "issues",
+    "mentioned_positives": "positives",
+    "mentioned_improvements": "improvements",
+    "mentioned_buying_factors": "buyingFactors",
+    "mentioned_pain_points": "painPoints",
+    "user_profiles": "userProfiles",
+    "mentioned_usage_times": "usageTimes",
+    "mentioned_usage_locations": "usageLocations",
+    "mentioned_behaviors": "behaviors",
+    "keywords": "keywords",
+}
+
+_MAP_ARRAY_FIELDS = list(DIM_TO_LABELTYPE.keys())
+
+REVIEW_MAP_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "sentiment": {"type": "STRING", "enum": ["positive", "neutral", "negative"]},
+        **{k: {"type": "ARRAY", "items": {"type": "STRING"}} for k in _MAP_ARRAY_FIELDS},
+    },
+    "required": ["sentiment"] + _MAP_ARRAY_FIELDS,
+}
+
+REVIEW_REDUCE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "clusters": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "canonical": {"type": "STRING"},
+                    "members": {"type": "ARRAY", "items": {"type": "STRING"}},
+                },
+                "required": ["canonical", "members"],
+            },
+        },
+    },
+    "required": ["clusters"],
+}
+
+
+def render_review_map_prompt(review: dict, product_title: str = "", product_category: str = "") -> str:
+    title = review.get("title") or ""
+    body = review.get("body") or ""
+    full = f"{title}. {body}" if title else body
+    text = full[:500]
+    rating = review.get("rating") or 3
+    verified = bool(review.get("verifiedPurchase"))
+    return f"""IMPORTANT: Respond ONLY with a JSON object matching the schema below. Output must be in English — translate non-English text before extracting.
+
+You are an expert data extraction specialist analyzing product reviews. Extract only what is EXPLICITLY mentioned — do not infer.
+
+JSON schema:
+{{
+  "sentiment": "positive" | "neutral" | "negative",
+  "mentioned_scenarios": [string],      // max 5 noun phrases 1-3 words (Workouts, Gaming)
+  "mentioned_issues": [string],         // max 5 Adjective+Noun for PRODUCT DEFECTS (Poor Sound Quality)
+  "mentioned_positives": [string],      // max 5 Adjective+Noun for praised aspects (Comfortable Fit)
+  "mentioned_improvements": [string],   // max 3 Verb+Noun explicit suggestions (Extend Battery Life)
+  "mentioned_buying_factors": [string], // max 3 noun phrases for purchase reasons (Price Point)
+  "mentioned_pain_points": [string],    // max 3 UX frustrations EXPERIENCED AFTER USE (see rule)
+  "user_profiles": [string],            // max 3 identities stated EXPLICITLY (see rule)
+  "mentioned_usage_times": [string],    // max 3 time/season phrases (Morning, Winter)
+  "mentioned_usage_locations": [string],// max 3 location phrases (Gym, Home)
+  "mentioned_behaviors": [string],      // max 5 Verb+Object (Taking Calls, Running)
+  "keywords": [string]                  // 3-15 salient words from the review
+}}
+
+Rules:
+- sentiment: positive (4-5 stars or praise), neutral (3 stars / mixed), negative (1-2 stars or complaint)
+- pain_points = problems EXPERIENCED AFTER USE. NOT problems the product solves. If the reviewer says the product solved a prior problem (e.g. "cured my foot pain"), that belongs in positives, NOT pain_points.
+- issues vs pain_points: issues = product defects (hardware/software fault); pain_points = UX frustrations
+- user_profiles: include ONLY if the reviewer explicitly states an identity ("I'm a...", "As a..."). NEVER infer.
+- consistent naming across reviews (e.g. always "Workouts", not "At the gym")
+- use empty arrays [] for categories with no mentions, never null
+
+INPUT:
+Product Category: {product_category or '(unknown)'}
+Product Title: {product_title or '(unknown)'}
+Review Rating: {rating}/5 stars
+Verified Purchase: {'Yes' if verified else 'No'}
+Review Text:
+\"\"\"{text}\"\"\"
+
+Return ONLY the JSON object."""
+
+
+def render_review_reduce_prompt(label_type: str, candidates: list) -> str:
+    return f"""Normalize product-review tags. Group semantically equivalent phrases into clusters and pick a concise Title-Case canonical name (1-3 words) for each cluster.
+
+Label type: {label_type}
+
+Rules:
+- A cluster contains phrases describing the SAME underlying concept.
+- Every input phrase MUST appear in exactly one cluster's `members`. No drops, no duplicates across clusters.
+- Phrases with no semantic neighbors go in their own single-member cluster (still Title-Case canonical).
+- Case-insensitive matching. Preserve input phrase strings verbatim in `members`.
+
+Return a JSON object matching:
+{{"clusters": [{{"canonical": "Title Case", "members": ["phrase1", "phrase2"]}}]}}
+
+Input phrases:
+{json.dumps(candidates, ensure_ascii=False)}"""
+
+
+def fetch_realtime_reviews_all(asin: str, marketplace: str = "US",
+                                max_pages: int = REALTIME_REVIEWS_MAX_PAGES,
+                                log_fn=None) -> dict:
+    """Paginate /realtime/reviews with cursor; stop on null cursor or max_pages."""
+    log = log_fn or (lambda m: None)
+    reviews = []
+    cursor = None
+    pages = 0
+    t0 = time.time()
+    for i in range(1, max_pages + 1):
+        params = {"asin": asin, "marketplace": marketplace}
+        if cursor:
+            params["cursor"] = cursor
+        resp = api_call("realtime/reviews", params)
+        if not resp.get("success"):
+            break
+        data = resp.get("data") or {}
+        page_reviews = data.get("reviews") or []
+        cursor = data.get("nextCursor")
+        pages += 1
+        reviews.extend(page_reviews)
+        log(f"  page {i}: {len(page_reviews)} reviews, cursor={'yes' if cursor else 'end'}")
+        if not cursor:
+            break
+    return {
+        "reviews": reviews,
+        "pages": pages,
+        "capped": pages >= max_pages and cursor is not None,
+        "fetchSeconds": round(time.time() - t0, 2),
+    }
+
+
+def aggregate_review_insights(reviews: list, tagged: list, clusters_per_dim: dict) -> dict:
+    """Combine raw reviews + per-review Map tags + per-dimension Reduce clusters
+    into a reviews/analysis-compatible aggregation. No LLM calls."""
+    from collections import defaultdict
+
+    if len(tagged) != len(reviews):
+        raise ValueError(f"tagged length ({len(tagged)}) != reviews length ({len(reviews)})")
+
+    total = len(reviews)
+    ratings = [r.get("rating") or 0 for r in reviews]
+
+    dim_phrase_reviews = {k: defaultdict(set) for k in DIM_TO_LABELTYPE}
+    for i, tags in enumerate(tagged):
+        if not isinstance(tags, dict):
+            continue
+        for dim in DIM_TO_LABELTYPE:
+            for el in (tags.get(dim) or []):
+                if not isinstance(el, str):
+                    continue
+                kl = el.strip().lower()
+                if kl:
+                    dim_phrase_reviews[dim][kl].add(i)
+
+    insights = []
+    for dim, phrases in dim_phrase_reviews.items():
+        if not phrases:
+            continue
+        p2c = {}
+        for cl in (clusters_per_dim.get(dim) or []):
+            canon = (cl.get("canonical") or "").strip()
+            if not canon:
+                continue
+            for m in (cl.get("members") or []):
+                if not isinstance(m, str):
+                    continue
+                ml = m.strip().lower()
+                if ml and ml not in p2c:
+                    p2c[ml] = canon
+        for ph in phrases:
+            p2c.setdefault(ph, ph.title())
+
+        canon_to_reviews = defaultdict(set)
+        for phrase, rs in phrases.items():
+            canon_to_reviews[p2c[phrase]].update(rs)
+
+        lt = DIM_TO_LABELTYPE[dim]
+        for canon, rs in canon_to_reviews.items():
+            c = len(rs)
+            avg = sum(ratings[i] for i in rs) / c if c else 0.0
+            insights.append({
+                "element": canon,
+                "labelType": lt,
+                "count": c,
+                "reviewRate": round(c / total, 4),
+                "avgRating": round(avg, 2),
+            })
+    insights.sort(key=lambda x: (x["labelType"], -x["count"]))
+
+    sentiments = [(t or {}).get("sentiment") for t in tagged]
+    sentiment_dist = {
+        "positive": round(sum(1 for s in sentiments if s == "positive") / total, 4) if total else 0,
+        "neutral": round(sum(1 for s in sentiments if s == "neutral") / total, 4) if total else 0,
+        "negative": round(sum(1 for s in sentiments if s == "negative") / total, 4) if total else 0,
+    }
+    avg_rating = round(sum(ratings) / total, 2) if total else 0.0
+
+    return {
+        "success": True,
+        "data": {
+            "reviewCount": total,
+            "avgRating": avg_rating,
+            "sentimentDistribution": sentiment_dist,
+            "consumerInsights": insights,
+            "topKeywords": [
+                {"element": it["element"], "count": it["count"]}
+                for it in insights if it["labelType"] == "keywords"
+            ][:20],
+        },
+        "_meta": {"source": "prompt-as-data-aggregation", "tagsApplied": total},
+    }
+
+
+def cmd_reviews_raw(args):
+    log_fn = (lambda m: print(m, file=sys.stderr)) if args.verbose else None
+    result = fetch_realtime_reviews_all(args.asin, args.marketplace, args.max_pages, log_fn=log_fn)
+    output({
+        "success": True,
+        "data": result,
+        "_query": {"endpoint": "realtime/reviews",
+                   "params": {"asin": args.asin, "marketplace": args.marketplace,
+                              "maxPages": args.max_pages}},
+    })
+
+
+def _load_json_arg(inline: str, path: str, name: str):
+    """Load JSON from --<name> inline arg or --<name>-file path."""
+    if inline and path:
+        print(f"ERROR: provide either --{name} or --{name}-file, not both", file=sys.stderr)
+        sys.exit(1)
+    if inline:
+        return json.loads(inline)
+    if path:
+        with open(path) as f:
+            return json.load(f)
+    print(f"ERROR: --{name} or --{name}-file is required", file=sys.stderr)
+    sys.exit(1)
+
+
+def cmd_review_tag_prompt(args):
+    review = _load_json_arg(args.review, args.review_file, "review")
+    prompt = render_review_map_prompt(
+        review,
+        product_title=args.product_title or "",
+        product_category=args.product_category or "",
+    )
+    print(prompt)
+
+
+def cmd_review_reduce_prompt(args):
+    candidates = _load_json_arg(args.candidates, args.candidates_file, "candidates")
+    if not isinstance(candidates, list):
+        print("ERROR: candidates must be a JSON array of strings", file=sys.stderr)
+        sys.exit(1)
+    prompt = render_review_reduce_prompt(args.label_type, candidates)
+    print(prompt)
+
+
+def cmd_review_aggregate(args):
+    with open(args.reviews) as f:
+        reviews_data = json.load(f)
+    if isinstance(reviews_data, dict):
+        reviews = (reviews_data.get("data") or {}).get("reviews") or reviews_data.get("reviews") or []
+    else:
+        reviews = reviews_data
+
+    with open(args.tagged) as f:
+        tagged = json.load(f)
+    with open(args.clusters) as f:
+        clusters_per_dim = json.load(f)
+
+    result = aggregate_review_insights(reviews, tagged, clusters_per_dim)
+    result["_query"] = {"endpoint": "realtime/reviews+local-aggregate",
+                        "params": {"reviews": args.reviews, "tagged": args.tagged,
+                                    "clusters": args.clusters}}
+    output(result)
+
+
 # ─── Subcommands ─────────────────────────────────────────────────────────────
 
 def cmd_categories(args):
@@ -2282,6 +2591,38 @@ Examples:
     p_rd.add_argument("--comp-asins", help="Competitor ASINs for comparison (comma-separated)")
     p_rd.add_argument("--category", help="Category path")
     p_rd.set_defaults(func=cmd_review_deepdive)
+
+    # ── reviews-raw (realtime/reviews with cursor pagination, up to 100 reviews) ──
+    p_rr = sub.add_parser("reviews-raw", help="Fetch raw reviews from realtime/reviews (cap 100, early-exit on null cursor)", allow_abbrev=False)
+    p_rr.add_argument("--asin", required=True)
+    p_rr.add_argument("--marketplace", default="US", choices=["US", "UK"])
+    p_rr.add_argument("--max-pages", type=int, default=REALTIME_REVIEWS_MAX_PAGES,
+                      help=f"Max pages to fetch (10 reviews each, default {REALTIME_REVIEWS_MAX_PAGES})")
+    p_rr.add_argument("--verbose", action="store_true")
+    p_rr.set_defaults(func=cmd_reviews_raw)
+
+    # ── review-tag-prompt (render Map prompt for one review — caller's LLM runs it) ──
+    p_rtp = sub.add_parser("review-tag-prompt", help="Render the per-review Map prompt (caller's own LLM runs it)", allow_abbrev=False)
+    p_rtp.add_argument("--review", help="Review object as JSON string")
+    p_rtp.add_argument("--review-file", help="Path to JSON file containing a single review object")
+    p_rtp.add_argument("--product-title", help="Optional product title context")
+    p_rtp.add_argument("--product-category", help="Optional product category context")
+    p_rtp.set_defaults(func=cmd_review_tag_prompt)
+
+    # ── review-reduce-prompt (render Reduce prompt for one dimension — caller's LLM runs it) ──
+    p_rrp = sub.add_parser("review-reduce-prompt", help="Render the per-dimension Reduce prompt (caller's own LLM runs it)", allow_abbrev=False)
+    p_rrp.add_argument("--label-type", required=True,
+                       help="Dimension to cluster (scenarios, issues, positives, improvements, buyingFactors, painPoints, userProfiles, usageTimes, usageLocations, behaviors, keywords)")
+    p_rrp.add_argument("--candidates", help="Candidate phrases as JSON array string")
+    p_rrp.add_argument("--candidates-file", help="Path to JSON file containing candidate phrases array")
+    p_rrp.set_defaults(func=cmd_review_reduce_prompt)
+
+    # ── review-aggregate (build reviews/analysis-compatible output from tags + clusters) ──
+    p_rag = sub.add_parser("review-aggregate", help="Aggregate per-review tags + per-dim clusters into consumerInsights", allow_abbrev=False)
+    p_rag.add_argument("--reviews", required=True, help="Path to JSON from reviews-raw (or raw reviews array)")
+    p_rag.add_argument("--tagged", required=True, help="Path to JSON array of Map outputs (same order as reviews)")
+    p_rag.add_argument("--clusters", required=True, help="Path to JSON {dim_key: [{canonical, members}]} from Reduce")
+    p_rag.set_defaults(func=cmd_review_aggregate)
 
     # ── analyze (reviews) ──
     p_analyze = sub.add_parser("analyze", help="AI-powered review analysis", allow_abbrev=False)

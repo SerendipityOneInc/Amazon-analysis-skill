@@ -1,6 +1,6 @@
 ---
 name: Amazon Analysis — Full-Spectrum Research & Seller Intelligence
-version: 1.1.5
+version: 1.1.6
 description: >
   Amazon seller data analysis tool. Features: market research, product selection, competitor analysis, ASIN evaluation, pricing reference, category research.
   Uses {skill_base_dir}/scripts/apiclaw.py to call APIClaw API, requires APICLAW_API_KEY.
@@ -34,7 +34,17 @@ User provides: keyword, category, ASIN, or brand — depending on intent. Use in
 1. **Category first**: keyword search is broad → MUST lock `categoryPath` via `categories` endpoint before other calls
 2. **Brand + category**: Brand queries MUST include `--category` to avoid cross-category contamination
 3. **Use API fields directly**: revenue=`sampleAvgMonthlyRevenue` (NEVER calculate price×sales), sales=`monthlySalesFloor` (lower bound), opportunity=`sampleOpportunityIndex`
-4. **reviews/analysis**: needs 50+ reviews per ASIN; try category mode first (single call returns all dimensions), ASIN mode only if category call fails. Filter by `labelType` client-side from the `consumerInsights` array.
+4. **reviews/analysis**: needs 50+ reviews per ASIN; try category mode first (single call returns all dimensions), ASIN mode only if category call fails. Filter by `labelType` client-side from the `consumerInsights` array. Fallback chain when sample is insufficient:
+   1. **Lightweight**: `realtime/product` ratingBreakdown — only star distribution, no themes
+   2. **Full 11-dim insights** — bypass `/reviews/analysis` entirely:
+      a. `apiclaw.py reviews-raw --asin X` → fetch up to 100 raw reviews (10 credits, ~60s)
+      b. For each review: render Map prompt via `apiclaw.py review-tag-prompt --review '<json>'`
+         and have your own LLM produce JSON tags (sentiment + 11 dimensions)
+      c. Collect candidate phrases per dimension; for each dimension render
+         Reduce prompt via `apiclaw.py review-reduce-prompt --label-type X --candidates '[...]'`
+         and have your LLM produce semantic clusters
+      d. `apiclaw.py review-aggregate --reviews R --tagged T --clusters C`
+         → consumerInsights output compatible with `/reviews/analysis`
 5. **Aggregation without categoryPath**: produces severely distorted data
 6. **`.data` is array**: use `.data[0]`, not `.data.field`
 7. **labelType**: NOT an API request parameter — it is a field in the response `consumerInsights` array, used for client-side filtering
@@ -116,6 +126,22 @@ Output language MUST match the user's input language. If the user asks in Chines
 - 💡 **Directional** — suggestions, predictions, strategy (e.g. "consider entering $10-15 band 💡")
 
 Rules: Strategy recommendations are NEVER 📊. Anomalies (>200% growth) are always 💡. User criteria override AI judgment.
+
+**Aggregate-label rule (applies to ALL report output, not just fallback)**: NEVER attach 📊 to ANY element that aggregates or groups underlying content when ANY piece of that content is 🔍 or 💡. "Aggregate/grouping elements" include:
+- Section headers at EVERY level (`#`, `##`, `###`, `####`) — including top-level summary sections like "Overall Score", "Verdict", "Executive Summary"
+- Summary/score lines anywhere in the report (e.g. `## Overall Score — 27/100 · Grade F 📊` is WRONG if any Basis row inside is 🔍)
+- Table **column** headers in comparison tables (e.g. `**Target ASIN** 📊` as a column label is WRONG if any cell in that column contains 🔍)
+- Table row headers or row-aggregation labels (when the row aggregates multiple cells of mixed confidence)
+- Any other visual grouping label — bullet-list group titles, callout box titles, etc.
+
+A group-level 📊 implies the whole block/column/row is data-backed, which smuggles inferred/directional content into the 📊 tier via visual grouping. Either (a) **omit the group-level label entirely** (preferred when content mixes tiers), or (b) use the LOWEST confidence present inside (🔍 if any underlying content is 🔍; 💡 if any is 💡). This is a universal output-quality rule — it applies regardless of which fallback path (if any) was triggered.
+
+**Emoji reservation rule (closely related)**: The three confidence symbols `📊 🔍 💡` are RESERVED for confidence labeling. NEVER use them as decorative prefixes on section headers, table headers, or any aggregate element — even when you also include a correct confidence suffix on the same line. Example:
+- ❌ WRONG: `## 📊 Overall Score — 27/100 · Grade F 🔍` (the leading 📊 reads as a data-backed claim even though the trailing 🔍 is correct)
+- ✅ RIGHT: `## Overall Score — 27/100 · Grade F 🔍` (no decorative emoji, just the proper confidence suffix)
+- ✅ RIGHT: `## 🎯 Overall Score — 27/100 · Grade F 🔍` (use non-reserved decorative icons like 🎯 🧭 📋 📝 📂 🏁 🚨 🏆 🔔 when a visual prefix is desired)
+
+Decorative emoji ≠ confidence label — but from a reader's perspective, a leading `📊/🔍/💡` is indistinguishable from a confidence claim. Reserve these three symbols EXCLUSIVELY for confidence annotation to avoid ambiguity.
 
 ### Data Provenance (required)
 
