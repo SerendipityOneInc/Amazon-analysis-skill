@@ -243,6 +243,8 @@ python amazon-analysis/scripts/apiclaw.py products --keyword "wireless earbuds" 
 ## 社区
 
 - 💬 [Discord](https://discord.gg/YfDFU9BDp5) — 聊天、提问、分享你在做的东西
+- 🟢 企业微信交流群 — 扫码加入：
+  <br><img src="assets/wechat-qr.jpg" width="200" alt="WeChat Group QR Code">
 - 🐛 [Issues](https://github.com/SerendipityOneInc/APIClaw-Skills/issues) — Bug 反馈和功能建议
 - 📖 [API 文档](https://apiclaw.io) — 完整 API 文档
 
